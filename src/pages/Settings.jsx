@@ -7,6 +7,7 @@ import { useApp } from '../context/AppContext';
 import { getJiraProjects, getJiraBaseUrl } from '../services/jiraService';
 import { getConfluenceSpaces, getConfluenceBaseUrl } from '../services/confluenceService';
 import { getBitbucketWorkspaces, getBitbucketRepos } from '../services/bitbucketService';
+import './Settings.css';
 
 const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
 const EMAIL = typeof __ATLASSIAN_EMAIL__ !== 'undefined' ? __ATLASSIAN_EMAIL__ : '';
@@ -213,7 +214,7 @@ export const Settings = () => {
           {bitbucketStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
         </div>
 
-        <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        <div className="bitbucket-fields-grid">
           <div>
             <label className="text-sm font-medium block mb-1">Workspace</label>
             {bbWorkspaces.length > 0 ? (

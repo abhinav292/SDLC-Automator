@@ -7,8 +7,12 @@
   animation: fadeIn 0.4s ease-out;
 }
 
+.handoff-dashboard header {
+  width: 100%;
+}
+
 .artifact-card {
-  padding: var(--spacing-6);
+  padding: var(--spacing-5);
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -23,31 +27,47 @@
   box-shadow: var(--shadow-lg);
 }
 
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-/* override standard lucide animate-spin color for generic loader */
-.loader-circle {
-  color: var(--color-primary);
-}
-
 .sync-progress-grid {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  width: 100%;
 }
 
 .sync-phase {
   transition: all 0.3s ease;
 }
 
-.grid-cols-3 {
+/* Artifact results grid */
+.artifacts-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1.25rem;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto 2rem;
 }
 
+/* Handoff action row (flex wrappers) */
 .surface-elevated {
   background-color: var(--bg-surface-elevated);
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 900px) {
+  .artifacts-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .artifacts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .handoff-dashboard {
+    min-height: 60vh;
+    justify-content: flex-start;
+    padding-top: 2rem;
+  }
 }

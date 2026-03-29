@@ -33,5 +33,9 @@ export const updateStory = (pipelineId, storyId, data) =>
 export const logEvent = (pipelineId, eventType, eventData) =>
   request('POST', `/pipelines/${pipelineId}/audit`, { eventType, eventData });
 
+// Voice Transcript Cleanup
+export const cleanTranscript = (rawTranscript) =>
+  request('POST', '/clean-transcript', { rawTranscript });
+
 // Health
 export const checkBackendHealth = () => request('GET', '/health');

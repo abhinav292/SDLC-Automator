@@ -1,0 +1,35 @@
+.settings-page {
+  animation: fadeIn 0.35s ease-out;
+}
+
+.settings-page header h1 {
+  font-size: 1.875rem;
+}
+
+.settings-page .card {
+  margin-bottom: 1.25rem;
+}
+
+/* Bitbucket workspace/repo grid */
+.bitbucket-fields-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 768px) {
+  .settings-page header h1 {
+    font-size: 1.5rem;
+  }
+
+  .bitbucket-fields-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-page {
+    max-width: 100% !important;
+  }
+}

@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  LayoutDashboard, CheckSquare, Network, Settings, Bell, User, Activity
+  LayoutDashboard, CheckSquare, Network, Settings, Bell, User, Activity, Menu, X
 } from 'lucide-react';
 import './Layout.css';
 
-const NavigationItem = ({ to, icon: Icon, label, exact }) => (
-  <NavLink to={to} end={exact} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-    <Icon size={20} />
+const NavigationItem = ({ to, icon: Icon, label, exact, onClick }) => (
+  <NavLink to={to} end={exact} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} onClick={onClick}>
+    <Icon size={18} />
     <span>{label}</span>
   </NavLink>
 );
@@ -15,53 +15,62 @@ const NavigationItem = ({ to, icon: Icon, label, exact }) => (
 const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
 
 export const Layout = () => {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = () => setSidebarOpen(false);
+
   return (
     <div className="app-container">
-      <aside className="sidebar">
+      {sidebarOpen && <div className="sidebar-overlay" onClick={closeSidebar} aria-hidden="true" />}
+
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
-          <div className="logo-icon glass-panel flex items-center justify-center">
-            <Activity size={24} className="text-primary" style={{ color: 'var(--color-primary)' }} />
+          <div className="logo-icon glass-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Activity size={22} style={{ color: 'var(--color-primary)' }} />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <h1 className="logo-text">Autopilot</h1>
             <span className="logo-subtext">SDLC Command Center</span>
           </div>
+          <button className="sidebar-close-btn" onClick={closeSidebar} aria-label="Close menu">
+            <X size={18} />
+          </button>
         </div>
 
         <nav className="sidebar-nav">
           <div className="nav-section">Main</div>
-          <NavigationItem to="/" icon={LayoutDashboard} label="Dashboard" exact />
-          <NavigationItem to="/review" icon={CheckSquare} label="Review Pipeline" />
-          <NavigationItem to="/handoff" icon={Network} label="Artifacts & Sync" />
+          <NavigationItem to="/" icon={LayoutDashboard} label="Dashboard" exact onClick={closeSidebar} />
+          <NavigationItem to="/review" icon={CheckSquare} label="Review Pipeline" onClick={closeSidebar} />
+          <NavigationItem to="/handoff" icon={Network} label="Artifacts & Sync" onClick={closeSidebar} />
         </nav>
 
         <div className="sidebar-footer">
-          <NavigationItem to="/settings" icon={Settings} label="Settings" />
+          <NavigationItem to="/settings" icon={Settings} label="Settings" onClick={closeSidebar} />
         </div>
       </aside>
 
       <div className="main-content">
-        <header className="topbar glass-panel m-4">
-          <div className="topbar-search">
-            <span className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+        <header className="topbar glass-panel">
+          <div className="topbar-left">
+            <button className="hamburger-btn" onClick={() => setSidebarOpen(s => !s)} aria-label="Open menu">
+              <Menu size={20} />
+            </button>
+            <span className="topbar-env">
               Active Environment:{' '}
               <span className="gradient-text">
                 {DOMAIN ? DOMAIN.replace('.atlassian.net', '') : 'Production'} / Org-Main
               </span>
             </span>
           </div>
-          <div className="topbar-actions flex items-center gap-4">
-            <button className="btn btn-secondary icon-btn relative p-2" style={{ borderRadius: '50%' }}>
-              <Bell size={18} />
-              <span className="badge-notification"></span>
+          <div className="topbar-actions">
+            <button className="btn icon-btn relative" aria-label="Notifications">
+              <Bell size={17} />
+              <span className="badge-notification" aria-hidden="true" />
             </button>
-            <div className="user-profile flex items-center gap-2">
+            <div className="user-profile">
               <div className="avatar">
-                <User size={18} />
+                <User size={16} />
               </div>
-              <div className="flex-col">
-                <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Sarah (TPM)</span>
-              </div>
+              <span className="user-name">Sarah (TPM)</span>
             </div>
           </div>
         </header>

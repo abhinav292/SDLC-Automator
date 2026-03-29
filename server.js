@@ -84,6 +84,59 @@ ${text.slice(0, 12000)}`;
   }
 });
 
+// ─── VOICE TRANSCRIPT CLEANUP ─────────────────────────────────────────────────
+
+app.post('/clean-transcript', async (req, res) => {
+  const { rawTranscript } = req.body;
+  if (!rawTranscript) return res.status(400).json({ error: 'No transcript provided' });
+
+  const prompt = `You are a meeting transcript editor. The following raw text was produced by browser speech recognition and may contain errors, filler words, and poor formatting.
+
+Clean it up following these rules:
+1. Remove filler words (um, uh, like, you know, so, basically, right)
+2. Add proper punctuation and capitalization throughout
+3. Fix obvious speech recognition errors, especially for technical terms (APIs, framework names, etc.)
+4. Add paragraph breaks at natural topic changes
+5. If you can detect multiple speakers from context (e.g., "I said... they said..."), prefix turns with "Speaker 1:", "Speaker 2:", etc.
+6. Preserve ALL actual content — do not summarize or remove any requirements, decisions, or action items
+
+Return ONLY the cleaned transcript text. No preamble, no explanation.
+
+RAW TRANSCRIPT:
+${rawTranscript.slice(0, 8000)}`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+        'X-Title': 'SDLC Autopilot'
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-flash-1.5',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        max_tokens: 3000
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('Transcript cleanup error:', err);
+      return res.json({ cleaned: rawTranscript, fallback: true });
+    }
+
+    const data = await response.json();
+    const cleaned = data.choices?.[0]?.message?.content?.trim() || rawTranscript;
+    res.json({ cleaned, model: data.model, fallback: false });
+  } catch (err) {
+    console.error('Transcript cleanup failed:', err);
+    res.json({ cleaned: rawTranscript, fallback: true });
+  }
+});
+
 // ─── PIPELINE RUNS ────────────────────────────────────────────────────────────
 
 app.get('/pipelines', async (req, res) => {

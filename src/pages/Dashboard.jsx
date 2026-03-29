@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  UploadCloud, Mic, Activity, FileText, Loader2, X, Plus, MicOff,
-  CheckCircle, Clock, GitBranch, ChevronRight, AlertCircle, Zap
+  UploadCloud, Mic, FileText, Loader2, Plus, MicOff,
+  CheckCircle, Clock, GitBranch, AlertCircle, Zap, Sparkles, WifiOff
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { extractTextFromFile } from '../services/fileReaderService';
 import { extractStoriesFromFiles } from '../services/extractionService';
-import { createPipeline, checkBackendHealth, logEvent } from '../services/apiService';
+import { createPipeline, checkBackendHealth, logEvent, cleanTranscript } from '../services/apiService';
 import './Dashboard.css';
 
 const StatusBadge = ({ status }) => {
@@ -18,20 +18,25 @@ const StatusBadge = ({ status }) => {
     pending: { cls: 'badge-neutral', label: 'Pending' }
   };
   const s = map[status] || map.pending;
-  return <span className={`badge ${s.cls}`} style={{ fontSize: '0.65rem' }}>{s.label}</span>;
+  return <span className={`badge ${s.cls}`}>{s.label}</span>;
 };
 
 export const Dashboard = () => {
   const navigate = useNavigate();
   const { pipelineStats, pipelineHistory, loadPipelineHistory, setStoriesFromExtraction, loadMockStories } = useApp();
+
   const [files, setFiles] = useState([]);
   const [dragActive, setDragActive] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [recordingTranscript, setRecordingTranscript] = useState('');
+  const [rawTranscript, setRawTranscript] = useState('');
+  const [cleanedTranscript, setCleanedTranscript] = useState('');
+  const [transcriptCleaned, setTranscriptCleaned] = useState(false);
+  const [isCleaningTranscript, setIsCleaningTranscript] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState('');
   const [backendOk, setBackendOk] = useState(null);
+
   const mediaRecorderRef = useRef(null);
   const timerRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -39,7 +44,10 @@ export const Dashboard = () => {
   useEffect(() => {
     loadPipelineHistory();
     checkBackendHealth().then(() => setBackendOk(true)).catch(() => setBackendOk(false));
-    return () => { clearInterval(timerRef.current); if (recognitionRef.current) recognitionRef.current.stop(); };
+    return () => {
+      clearInterval(timerRef.current);
+      if (recognitionRef.current) recognitionRef.current.stop();
+    };
   }, []);
 
   const handleFileDrop = (e) => { e.preventDefault(); setDragActive(false); addFiles(Array.from(e.dataTransfer.files)); };
@@ -55,27 +63,56 @@ export const Dashboard = () => {
       const recorder = new MediaRecorder(stream);
       recorder.start(100);
       mediaRecorderRef.current = recorder;
-      setIsRecording(true); setRecordingTime(0);
+      setIsRecording(true);
+      setRecordingTime(0);
+      setRawTranscript('');
+      setCleanedTranscript('');
+      setTranscriptCleaned(false);
       timerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
+
       if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const r = new SR(); r.continuous = true; r.interimResults = true;
-        r.onresult = (e) => setRecordingTranscript(Array.from(e.results).map(r => r[0].transcript).join(' '));
-        r.start(); recognitionRef.current = r;
+        const r = new SR();
+        r.continuous = true;
+        r.interimResults = true;
+        r.onresult = (e) => {
+          const text = Array.from(e.results).map(r => r[0].transcript).join(' ');
+          setRawTranscript(text);
+        };
+        r.start();
+        recognitionRef.current = r;
       }
-    } catch { alert('Microphone access denied.'); }
+    } catch {
+      alert('Microphone access denied. Please allow microphone access in your browser settings.');
+    }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     mediaRecorderRef.current?.stop();
     mediaRecorderRef.current?.stream.getTracks().forEach(t => t.stop());
     recognitionRef.current?.stop();
     clearInterval(timerRef.current);
     setIsRecording(false);
+
+    const capturedRaw = rawTranscript;
+    if (capturedRaw && capturedRaw.length > 20) {
+      setIsCleaningTranscript(true);
+      try {
+        const result = await cleanTranscript(capturedRaw);
+        setCleanedTranscript(result.cleaned);
+        setTranscriptCleaned(!result.fallback);
+      } catch {
+        setCleanedTranscript(capturedRaw);
+        setTranscriptCleaned(false);
+      } finally {
+        setIsCleaningTranscript(false);
+      }
+    }
   };
 
+  const activeTranscript = cleanedTranscript || rawTranscript;
   const formatTime = (s) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
-  const hasInput = files.length > 0 || recordingTranscript.length > 50;
+  const hasInput = files.length > 0 || activeTranscript.length > 50;
 
   const handleProcess = async () => {
     if (!hasInput) return;
@@ -85,10 +122,13 @@ export const Dashboard = () => {
       const fileNames = files.map(f => f.name);
       const texts = [];
 
-      if (recordingTranscript) texts.push(`Voice Recording Transcript:\n${recordingTranscript}`);
+      if (activeTranscript) texts.push(`Voice Recording Transcript:\n${activeTranscript}`);
 
       setProcessingStep('Creating pipeline...');
-      const pipeline = await createPipeline({ fileNames, transcriptSummary: fileNames.join(', ') || 'Voice recording' }).catch(() => null);
+      const pipeline = await createPipeline({
+        fileNames,
+        transcriptSummary: fileNames.join(', ') || 'Voice recording'
+      }).catch(() => null);
       pipelineId = pipeline?.id || null;
 
       for (const file of files) {
@@ -103,126 +143,177 @@ export const Dashboard = () => {
       setProcessingStep('Saving to database...');
       await setStoriesFromExtraction(stories, pipelineId);
 
-      if (pipelineId) await logEvent(pipelineId, 'transcript_uploaded', { fileCount: files.length, hasVoice: !!recordingTranscript }).catch(() => {});
+      if (pipelineId) {
+        await logEvent(pipelineId, 'transcript_uploaded', {
+          fileCount: files.length,
+          hasVoice: !!activeTranscript,
+          transcriptCleaned
+        }).catch(() => {});
+      }
 
       navigate('/review');
     } catch (err) {
       console.error('Extraction error:', err);
       alert(`Extraction failed: ${err.message}`);
     } finally {
-      setIsProcessing(false); setProcessingStep('');
+      setIsProcessing(false);
+      setProcessingStep('');
     }
   };
 
   return (
     <div className="dashboard">
-      <header className="dashboard-header mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Workspace Dashboard</h1>
-            <p className="text-secondary">Upload product requirements or record a live meeting to generate SDLC artifacts.</p>
-          </div>
-          {backendOk !== null && (
-            <div className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border ${backendOk ? 'border-green-500/30 bg-green-900/10 text-green-400' : 'border-red-500/30 bg-red-900/10 text-red-400'}`}>
-              {backendOk ? <><CheckCircle size={12} /> AI + DB Connected</> : <><AlertCircle size={12} /> Backend Offline</>}
-            </div>
-          )}
+      <header className="dashboard-header">
+        <div>
+          <h1>Workspace Dashboard</h1>
+          <p className="text-secondary">Upload product requirements or record a live meeting to generate SDLC artifacts.</p>
         </div>
+        {backendOk !== null && (
+          <div className={`status-pill ${backendOk ? 'status-pill--ok' : 'status-pill--error'}`}>
+            {backendOk
+              ? <><CheckCircle size={12} /> AI + DB Connected</>
+              : <><WifiOff size={12} /> Backend Offline</>}
+          </div>
+        )}
       </header>
 
-      <div className="stats-grid mb-8 glass-panel p-6">
+      <div className="stats-grid glass-panel">
         <div className="stat-item">
           <div className="stat-label">Pipeline Runs (30d)</div>
           <div className="stat-value">{pipelineStats.pipelineRuns}</div>
         </div>
-        <div className="stat-item border-l border-subtle pl-6">
+        <div className="stat-item">
           <div className="stat-label">Stories Pushed</div>
           <div className="stat-value gradient-text">{pipelineStats.storiesPushed}</div>
         </div>
-        <div className="stat-item border-l border-subtle pl-6">
+        <div className="stat-item">
           <div className="stat-label">Time Saved</div>
-          <div className="stat-value text-success">{pipelineStats.timeSaved}</div>
+          <div className="stat-value" style={{ color: 'var(--color-success)' }}>{pipelineStats.timeSaved}</div>
         </div>
-        <div className="stat-item border-l border-subtle pl-6">
+        <div className="stat-item">
           <div className="stat-label">AI Accuracy</div>
           <div className="stat-value">{pipelineStats.accuracy}</div>
         </div>
       </div>
 
-      <div className="ingestion-grid mb-8">
-        {/* Upload */}
-        <div className="card ingestion-card flex-col">
-          <div className="flex items-center gap-3 mb-4">
-            <UploadCloud size={22} style={{ color: 'var(--color-primary)' }} />
-            <h2 className="text-xl font-semibold">Upload Transcripts</h2>
+      <div className="ingestion-grid">
+        {/* Upload Card */}
+        <div className="card ingestion-card">
+          <div className="ingestion-card-header">
+            <UploadCloud size={20} style={{ color: 'var(--color-primary)' }} />
+            <h2>Upload Transcripts</h2>
           </div>
           <p className="text-secondary text-sm mb-4">Supports .txt, .docx, and .pdf — upload multiple files for multi-transcript synthesis.</p>
+
           <div
             className={`upload-dropzone ${dragActive ? 'drag-active' : ''}`}
-            onDrop={handleFileDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
-            style={{ flex: 1, minHeight: 160 }}
+            onDrop={handleFileDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
           >
-            <div className="flex flex-col items-center justify-center p-6 text-center text-secondary h-full">
-              <UploadCloud size={36} className="mb-3 text-tertiary" />
-              <p className="text-sm mb-1">Drag and drop files here or click to select</p>
-              <p className="text-xs text-tertiary mb-3">Max file size: 50MB per file</p>
-              <input type="file" id="file-upload" multiple accept=".txt,.docx,.pdf" style={{ display: 'none' }} onChange={handleFileSelect} />
-              <label htmlFor="file-upload" className="btn btn-secondary cursor-pointer text-sm">
-                <Plus size={14} /> Select Files
-              </label>
-            </div>
+            <UploadCloud size={32} className="upload-dropzone-icon" />
+            <p className="text-sm mb-1">Drag and drop files here or click to select</p>
+            <p className="text-xs" style={{ color: 'var(--text-tertiary)', marginBottom: '1rem' }}>Supports .txt, .docx, .pdf · Max 50MB</p>
+            <input type="file" id="file-upload" multiple accept=".txt,.docx,.pdf" style={{ display: 'none' }} onChange={handleFileSelect} />
+            <label htmlFor="file-upload" className="btn btn-secondary cursor-pointer">
+              <Plus size={14} /> Select Files
+            </label>
           </div>
+
           {files.length > 0 && (
-            <div className="mt-4 flex-col gap-2">
-              <span className="text-xs text-tertiary uppercase font-semibold">{files.length} file{files.length > 1 ? 's' : ''}</span>
+            <div className="file-list">
+              <span className="file-list-label">{files.length} file{files.length > 1 ? 's' : ''} selected</span>
               {files.map((f, i) => (
-                <div key={i} className="file-item glass-panel flex items-center justify-between p-2.5 rounded mt-1">
-                  <div className="flex items-center gap-2">
-                    <FileText size={14} style={{ color: 'var(--color-info)' }} />
-                    <span className="text-xs font-medium">{f.name}</span>
-                    <span className="text-xs text-tertiary">{(f.size / 1024).toFixed(1)} KB</span>
+                <div key={i} className="file-item">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                    <FileText size={13} style={{ color: 'var(--color-info)', flexShrink: 0 }} />
+                    <span className="file-item-name">{f.name}</span>
+                    <span style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem', flexShrink: 0 }}>{(f.size / 1024).toFixed(0)} KB</span>
                   </div>
-                  <button onClick={() => removeFile(i)} className="text-error hover:text-red-400 leading-none text-lg">×</button>
+                  <button onClick={() => removeFile(i)} className="file-remove-btn">×</button>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Voice */}
-        <div className="card ingestion-card flex-col justify-between">
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <Mic size={22} style={{ color: 'var(--color-secondary)' }} />
-              <h2 className="text-xl font-semibold">Voice Ingestion</h2>
-            </div>
-            <p className="text-secondary text-sm mb-4">Capture live meeting conversations — synthesized with uploaded transcripts.</p>
-            <div className="voice-recorder-container p-6 flex-col items-center justify-center border border-subtle rounded-xl text-center">
-              <button className={`record-btn ${isRecording ? 'recording' : ''}`} onClick={isRecording ? stopRecording : startRecording}>
-                {isRecording ? <MicOff size={30} color="white" /> : <Mic size={30} color="var(--color-primary)" />}
+        {/* Voice Card */}
+        <div className="card ingestion-card ingestion-card--voice">
+          <div className="ingestion-card-header">
+            <Mic size={20} style={{ color: 'var(--color-secondary)' }} />
+            <h2>Voice Ingestion</h2>
+          </div>
+          <p className="text-secondary text-sm mb-4">Capture live meeting conversations — AI-cleaned and synthesized with your files.</p>
+
+          <div className="voice-recorder-area">
+            <div className="voice-recorder-center">
+              <button
+                className={`record-btn ${isRecording ? 'recording' : ''}`}
+                onClick={isRecording ? stopRecording : startRecording}
+                aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+              >
+                {isRecording
+                  ? <MicOff size={28} color="white" />
+                  : <Mic size={28} color="var(--color-primary)" />}
               </button>
-              <div className="mt-3 text-sm">
-                {isRecording ? <span className="text-error font-medium">Recording... {formatTime(recordingTime)}</span> : <span className="text-secondary">Click to start live recording</span>}
-              </div>
-              {recordingTranscript && (
-                <div className="mt-3 text-left w-full">
-                  <p className="text-xs text-tertiary uppercase font-semibold mb-1">Live Transcript</p>
-                  <div className="bg-root border border-subtle rounded p-2 text-xs text-secondary max-h-20 overflow-y-auto">{recordingTranscript}</div>
-                  <p className="text-xs text-success mt-1 flex items-center gap-1"><CheckCircle size={10} /> Will be included in extraction</p>
+
+              {isRecording && (
+                <div className="recording-bars" aria-hidden="true">
+                  {[1,2,3,4,5].map(i => <div key={i} className={`recording-bar bar-${i}`} />)}
                 </div>
               )}
             </div>
+
+            <div className="voice-status">
+              {isRecording ? (
+                <span className="voice-status--recording">
+                  <span className="rec-dot" /> Recording {formatTime(recordingTime)}
+                </span>
+              ) : isCleaningTranscript ? (
+                <span className="voice-status--cleaning">
+                  <Loader2 size={13} className="animate-spin" /> Cleaning transcript with AI...
+                </span>
+              ) : activeTranscript ? (
+                <span className="voice-status--done">
+                  {transcriptCleaned
+                    ? <><Sparkles size={13} /> AI Cleaned</>
+                    : <><CheckCircle size={13} /> Transcript captured</>}
+                </span>
+              ) : (
+                <span className="voice-status--idle">Click to start live recording</span>
+              )}
+            </div>
+
+            {activeTranscript && !isRecording && (
+              <div className="transcript-preview">
+                <div className="transcript-preview-header">
+                  <span>Transcript Preview</span>
+                  {transcriptCleaned && <span className="badge badge-success" style={{ fontSize: '0.6rem' }}>
+                    <Sparkles size={9} /> AI Cleaned
+                  </span>}
+                </div>
+                <div className="transcript-preview-text">{activeTranscript}</div>
+              </div>
+            )}
           </div>
-          <div className="mt-5 flex flex-col gap-2">
+
+          <div className="ingestion-actions">
             <button
-              className="btn btn-primary w-full py-3.5 text-base font-semibold gap-2"
+              className="btn btn-primary btn-run"
               onClick={handleProcess}
-              disabled={isProcessing || !hasInput}
-              style={(!hasInput || isProcessing) ? { opacity: 0.55, cursor: 'not-allowed' } : {}}
+              disabled={isProcessing || !hasInput || isCleaningTranscript}
             >
-              {isProcessing ? <><Loader2 className="animate-spin" size={18} />{processingStep || 'Processing...'}</> : <><Zap size={18} />Run AI Extraction Pipeline</>}
+              {isProcessing
+                ? <><Loader2 className="animate-spin" size={16} />{processingStep || 'Processing...'}</>
+                : isCleaningTranscript
+                  ? <><Loader2 className="animate-spin" size={16} />Cleaning transcript...</>
+                  : <><Zap size={16} />Run AI Extraction Pipeline</>}
             </button>
-            <button className="btn btn-secondary w-full py-2 text-sm gap-2" onClick={() => { loadMockStories?.(); navigate('/review?mock=true'); }} disabled={isProcessing}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => { loadMockStories?.(); navigate('/review?mock=true'); }}
+              disabled={isProcessing}
+            >
               <FileText size={14} /> Use Demo Data
             </button>
           </div>
@@ -231,29 +322,33 @@ export const Dashboard = () => {
 
       {/* Pipeline History */}
       {pipelineHistory.length > 0 && (
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Clock size={18} style={{ color: 'var(--color-primary)' }} /> Pipeline History
+        <div className="card pipeline-history-card">
+          <div className="pipeline-history-header">
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Clock size={17} style={{ color: 'var(--color-primary)' }} /> Pipeline History
             </h2>
-            <span className="text-xs text-tertiary">{pipelineHistory.length} runs</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{pipelineHistory.length} runs</span>
           </div>
-          <div className="flex-col gap-2">
+          <div className="pipeline-history-list">
             {pipelineHistory.slice(0, 8).map(run => (
-              <div key={run.id} className="flex items-center justify-between p-3 border border-subtle rounded-lg bg-root hover:border-primary/30 transition-colors">
-                <div className="flex items-center gap-3 min-w-0">
+              <div key={run.id} className="pipeline-history-item">
+                <div className="pipeline-history-left">
                   <StatusBadge status={run.status} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{run.transcript_summary || 'Untitled run'}</p>
-                    <p className="text-xs text-tertiary">{new Date(run.created_at).toLocaleString()}</p>
+                  <div style={{ minWidth: 0 }}>
+                    <p className="pipeline-history-name">{run.transcript_summary || 'Untitled run'}</p>
+                    <p className="pipeline-history-date">{new Date(run.created_at).toLocaleString()}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-secondary flex-shrink-0">
-                  <span className="flex items-center gap-1"><FileText size={12} /> {run.story_count} stories</span>
-                  {run.approved_count > 0 && <span className="flex items-center gap-1"><CheckCircle size={12} style={{ color: 'var(--color-success)' }} /> {run.approved_count} pushed</span>}
+                <div className="pipeline-history-meta">
+                  <span><FileText size={11} /> {run.story_count} stories</span>
+                  {run.approved_count > 0 && (
+                    <span style={{ color: 'var(--color-success)' }}>
+                      <CheckCircle size={11} /> {run.approved_count} pushed
+                    </span>
+                  )}
                   {run.jira_keys && JSON.parse(run.jira_keys || '[]').length > 0 && (
-                    <span className="flex items-center gap-1 font-mono text-blue-400">
-                      <GitBranch size={12} /> {JSON.parse(run.jira_keys).join(', ')}
+                    <span style={{ color: '#60a5fa', fontFamily: 'monospace' }}>
+                      <GitBranch size={11} /> {JSON.parse(run.jira_keys).join(', ')}
                     </span>
                   )}
                 </div>

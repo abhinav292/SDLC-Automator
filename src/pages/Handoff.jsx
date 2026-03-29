@@ -190,7 +190,7 @@ export const Handoff = () => {
       )}
 
       {phase === 'done' && (
-        <div className="grid grid-cols-3 gap-5 mx-auto mb-8" style={{ maxWidth: 900 }}>
+        <div className="artifacts-grid">
           {/* Jira */}
           <div className="card artifact-card animate-fade-in stagger-1">
             <div className="flex items-center gap-3 mb-5">
