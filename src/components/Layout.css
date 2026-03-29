@@ -281,9 +281,13 @@
   }
 
   .topbar {
-    margin: var(--spacing-2) var(--spacing-3);
-    padding: 0 var(--spacing-3);
-    border-radius: var(--radius-xl);
+    margin: 0;
+    border-radius: 0;
+    padding: 0 var(--spacing-4);
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
   }
 
   .topbar-env {
@@ -295,7 +299,7 @@
   }
 
   .page-wrapper {
-    padding-top: calc(var(--topbar-height) + 1.5rem);
+    padding-top: var(--spacing-4);
   }
 
   .page-container {
