@@ -7,6 +7,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      host: '0.0.0.0',
+      port: 5000,
+      allowedHosts: true,
       proxy: {
         '/api/jira': {
           target: `https://${env.ATLASSIAN_DOMAIN}/rest/api/3`,
