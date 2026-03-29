@@ -326,7 +326,7 @@ export const getJiraProjects = async () => {
       return { projects: Array.isArray(data) ? data : [], error: null };
     }
     let errMsg = `HTTP ${res.status}`;
-    try { const d = await res.json(); errMsg = d.message || d.errorMessages?.join(', ') || errMsg; } catch {}
+    try { const d = await res.json(); const detail = d.message || d.errorMessages?.join(', '); if (detail) errMsg = `HTTP ${res.status} — ${detail}`; } catch {}
     return { projects: [], error: errMsg };
   } catch (err) {
     return { projects: [], error: err.message };

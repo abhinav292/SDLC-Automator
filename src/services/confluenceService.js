@@ -82,7 +82,7 @@ export const getConfluenceSpaces = async () => {
       return { spaces: data.results || [], error: null };
     }
     let errMsg = `HTTP ${res.status}`;
-    try { const d = await res.json(); errMsg = d.message || d.error || errMsg; } catch {}
+    try { const d = await res.json(); const detail = d.message || d.error; if (detail) errMsg = `HTTP ${res.status} — ${detail}`; } catch {}
     return { spaces: [], error: errMsg };
   } catch (err) {
     return { spaces: [], error: err.message };

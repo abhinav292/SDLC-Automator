@@ -47,7 +47,7 @@ export const getBitbucketWorkspaces = async () => {
       return { workspaces: data.values || [], error: null };
     }
     let errMsg = `HTTP ${res.status}`;
-    try { const d = await res.json(); errMsg = d.error?.message || d.message || errMsg; } catch {}
+    try { const d = await res.json(); const detail = d.error?.message || d.message; if (detail) errMsg = `HTTP ${res.status} — ${detail}`; } catch {}
     return { workspaces: [], error: errMsg };
   } catch (err) {
     return { workspaces: [], error: err.message };

@@ -214,7 +214,7 @@ export const Settings = () => {
             disabled={jiraDiagnosing}
           >
             {jiraDiagnosing ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
-            {jiraDiagnosing ? 'Testing…' : 'Test Write'}
+            {jiraDiagnosing ? 'Testing…' : 'Test Jira Write'}
           </button>
         </div>
         {jiraDiagResult && (
