@@ -34,7 +34,7 @@ The pipeline runs in three sequential phases:
 ```
 Phase 1 — Extract
   Upload transcript files (.txt, .docx, .pdf) or record via mic
-  → AI (GPT-4o-mini) extracts structured user stories with:
+  → AI (Gemini 2.0 Flash) extracts structured user stories with:
     title, description, positive & negative acceptance criteria,
     story points, priority, labels, technical notes,
     Gherkin QA scenarios, risk flags, solution options, dependencies
@@ -46,15 +46,16 @@ Phase 2 — Review
     → Download .feature files (Gherkin)
     → Approve or discard stories
 
-Phase 3 — Handoff (7 automated sub-phases)
+Phase 3 — Handoff (8 automated sub-phases)
   1. Jira        → Create Epic → Stories → Dev Sub-tasks → QA Sub-tasks → link dependencies
-  2. Bitbucket   → Scaffold feature branches per story
-  3. PR          → AI-generate PR review checklist → open Pull Request per branch
-  4. Code Gen    → Analyse Bitbucket repo → generate code scaffolding per story
+  2. Bitbucket   → Create feature branches per story (cut from `master` by default)
+  3. Code Gen    → Analyse Bitbucket repo structure → generate code scaffolding per story
+  4. Commit      → **NEW:** Commit AI-generated code directly to the story's feature branch
+  5. PR          → AI-generate PR review checklist → open Pull Request per branch (with valid diff)
                  → generate full technical solutioning document (HTML)
-  5. Confluence  → Publish solutioning document as new Confluence page
-  6. Email       → AI-generate stakeholder summary email (copy-to-clipboard)
-  7. Notify      → Send Slack / Teams / Discord webhook notification
+  6. Confluence  → Publish solutioning document as new Confluence page
+  7. Email       → AI-generate stakeholder summary email (copy-to-clipboard)
+  8. Notify      → Send Slack / Teams / Discord webhook notification
 ```
 
 ---
@@ -115,10 +116,11 @@ Phase 3 — Handoff (7 automated sub-phases)
 | Feature | Status |
 |---|---|
 | Feature branch creation (`feature/[JIRA-KEY]-[story-slug]`) | ✅ |
+| Committing generated code to feature branches (Bitbucket `/src` API) | ✅ |
 | AI-generated PR review checklist (Code Quality, Tests, AC, Security…) | ✅ |
 | Pull Request creation with checklist in description | ✅ |
 | Workspace & repository discovery from API | ✅ |
-| Configurable default/base branch | ✅ |
+| Configurable default/base branch (defaults to `master`) | ✅ |
 | Repository file tree analysis for code generation | ✅ |
 | Smart file selection based on story labels and title keywords | ✅ |
 
@@ -169,11 +171,12 @@ Phase 3 — Handoff (7 automated sub-phases)
 | **Frontend** | clsx | 2 | Conditional CSS class merging |
 | **Backend** | Express | 5 | REST API server |
 | **Backend** | Node.js | 18+ | Runtime |
+| **Backend** | dotenv | 16 | Environment variable management |
 | **Database** | PostgreSQL | 14+ | Pipeline & story persistence |
 | **Database** | pg (node-postgres) | 8 | PostgreSQL client |
 | **File Parsing** | mammoth | 1.12 | Word (.docx) document parsing |
-| **AI** | OpenRouter (GPT-4o-mini) | — | Story extraction, code gen, docs, checklists, QA, email |
-| **AI** | OpenRouter (Gemini Flash 1.5) | — | Transcript cleanup |
+| **AI** | OpenRouter (Gemini 2.0 Flash) | — | Primary model for all extraction and generation |
+| **AI** | OpenRouter (GPT-4o-mini) | — | Fallback model support |
 | **Styling** | Custom CSS Variables | — | Dark-theme design system |
 | **Fonts** | Google Fonts (Inter, Outfit) | — | Typography |
 | **Dev** | concurrently | 9 | Run Express + Vite together |
@@ -198,35 +201,23 @@ Phase 3 — Handoff (7 automated sub-phases)
 │  Express Server       │                           │  Authorization: Basic
 │  server.js :3001      │                           │  header from env vars)
 │                       │                           ▼
-│  /extract             │          ┌────────────────────────────────────┐
-│  /clean-transcript    │          │      Atlassian Cloud APIs          │
-│  /generate-pr-...     │          │                                    │
-│  /generate-qa-tasks   │          │  Jira Cloud REST v3                │
-│  /generate-code       │          │  → /rest/api/3/issue               │
-│  /generate-sol...doc  │          │  → /rest/api/3/issueLink           │
-│  /generate-stak...    │          │  → /rest/api/3/project             │
-│  /notify-slack        │          │  → /rest/api/3/search              │
-│  /pipelines (CRUD)    │          │                                    │
-│  /health              │          │  Confluence REST v2                │
-└──────────┬────────────┘          │  → /wiki/rest/api/content          │
-           │                       │  → /wiki/rest/api/space            │
-           │                       │                                    │
-           ▼                       │  Bitbucket Cloud 2.0               │
-┌──────────────────────┐           │  → /2.0/repositories/{ws}/{repo}/  │
-│  PostgreSQL          │           │     refs/branches                  │
-│                      │           │     pullrequests                   │
-│  pipeline_runs       │           │     src/{branch}/ (file tree)      │
-│  stories             │           │     src/{branch}/{path} (content)  │
-│  audit_log           │           └────────────────────────────────────┘
-└──────────────────────┘
+│  /extract (with AI fallback)                  │  Authorization: Basic
+│  /clean-transcript (with AI fallback)         │  header from env vars)
+│  /generate-pr-checklist                       │  
+│  /generate-qa-tasks                           │  Bitbucket Cloud 2.0
+│  /generate-code (with 8-step handoff)         │  → /refs/branches
+│  /generate-solutioning-doc                    │  → /src (commit multiple files)
+│  /notify-slack                                │  → /pullrequests
+│  /health (and /update-env for tokens)         │         
+└──────────┬────────────┘          └────────────────────────────────────┘
            │
            ▼
 ┌──────────────────────┐
 │  OpenRouter API      │
 │  openrouter.ai/api   │
 │                      │
+│  Gemini 2.0 Flash    │
 │  GPT-4o-mini         │
-│  Gemini Flash 1.5    │
 └──────────────────────┘
 ```
 
@@ -515,17 +506,12 @@ Story descriptions are structured ADF documents (not plain text), rendering with
 
 ## AI Models Used
 
-| Model | Via | Endpoint | Temp | Tokens | Purpose |
-|---|---|---|---|---|---|
-| `openai/gpt-4o-mini` | OpenRouter | `/extract` | 0.3 | 4000 | Story extraction from transcript |
-| `google/gemini-flash-1.5` | OpenRouter | `/clean-transcript` | 0.2 | 3000 | Transcript filler removal & formatting |
-| `openai/gpt-4o-mini` | OpenRouter | `/generate-pr-checklist` | 0.2 | 800 | PR review checklist |
-| `openai/gpt-4o-mini` | OpenRouter | `/generate-stakeholder-email` | 0.3 | 1000 | Stakeholder email draft |
-| `openai/gpt-4o-mini` | OpenRouter | `/generate-qa-tasks` | 0.2 | 2500 | Structured QA test cases |
-| `openai/gpt-4o-mini` | OpenRouter | `/generate-code` | 0.2 | 3500 | Code scaffolding files |
-| `openai/gpt-4o-mini` | OpenRouter | `/generate-solutioning-doc` | 0.3 | 4000 | HTML solutioning document |
+| Model | Via | Endpoint | Temp | Purposes |
+|---|---|---|---|---|
+| `google/gemini-2.0-flash-001` | OpenRouter | `/extract`, `/generate-code`, etc. | 0.2—0.4 | All primary AI analysis & scaffolding |
+| `openai/gpt-4o-mini` | OpenRouter | Fallback | 0.2 | Backup for high-complexity analysis |
 
-**Authentication:** OpenRouter uses the same `Authorization: Bearer <key>` format as OpenAI. The app passes `OPENAI_API_KEY` which should be an OpenRouter API key (`sk-or-...`).
+**Authentication:** OpenRouter uses the `Authorization: Bearer <key>` format. The app defaults to checking `OPENROUTER_API_KEY` in the `.env` file or from the **Settings** UI.
 
 **HTTP-Referer & X-Title headers** are sent to OpenRouter for usage attribution and rate limit tracking.
 
@@ -590,7 +576,7 @@ DATABASE_URL=postgresql://user:password@localhost:5432/sdlc_autopilot
 
 # ── AI (OpenRouter) ────────────────────────────────────────────────────────
 # Get your key at https://openrouter.ai/keys
-OPENAI_API_KEY=sk-or-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+OPENROUTER_API_KEY=sk-or-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # ── Atlassian (used by Vite proxy to inject Basic Auth header) ─────────────
 # Generate your Atlassian API token at:
@@ -599,6 +585,7 @@ ATLASSIAN_DOMAIN=yourcompany.atlassian.net
 ATLASSIAN_EMAIL=your@email.com
 ATLASSIAN_API_TOKEN=ATATTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 JIRA_PROJECT_KEY=KAN
+BITBUCKET_API_TOKEN=ATATTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 > **Note:** `ATLASSIAN_EMAIL` and `ATLASSIAN_API_TOKEN` are combined into a Basic Auth header (`base64(email:token)`) by the Vite dev server proxy and are **never sent to the browser**. The same token works for Jira, Confluence, and Bitbucket Cloud if all are under the same Atlassian account.
@@ -664,9 +651,10 @@ npm run lint       # ESLint check
 
 1. Open `http://localhost:5000` — check that the backend health badge shows "Connected"
 2. Go to **Settings** → click "Test Connections" — verify Jira, Confluence, and Bitbucket all show ✓
-3. On **Dashboard** → click "Use Demo Data" → click "Push to Review" to test the full pipeline without an OpenRouter key
-4. On **Review** → approve all stories → click "Push to Jira"
-5. Watch the **Handoff** screen as all 7 phases complete
+3. **NEW:** In **Settings**, enter your `OPENROUTER_API_KEY` in the AI Configuration section and click "Save Settings".
+4. On **Dashboard** → click "Use Demo Data" → click "Push to Review" to test the full pipeline
+5. On **Review** → approve all stories → click "Push to Jira"
+6. Watch the **Handoff** screen as all 8 phases complete (including the new code push to Bitbucket)
 
 ---
 

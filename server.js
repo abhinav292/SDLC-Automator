@@ -62,13 +62,13 @@ const simpleHash = (str) => {
 };
 
 // ─── AI MODEL CONFIGURATION ───────────────────────────────────────────────────
-// Change this one constant to switch all AI calls across the app.
-// google/gemini-2.0-flash-001: ~$0.10/M input, ~$0.40/M output, 1M-token context window.
-const AI_MODEL = 'google/gemini-2.0-flash-001';
+// Preferences: process.env.AI_MODEL -> then falls back to gemini-2.0-flash
+const getAIModel = () => process.env.AI_MODEL || 'google/gemini-2.0-flash-001';
 
 // ─── SHARED AI CALL HELPER ────────────────────────────────────────────────────
 
 const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
+  const selectedModel = model || getAIModel();
   const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('Missing AI API Key (OPENROUTER_API_KEY or OPENAI_API_KEY) in .env');
@@ -82,7 +82,7 @@ const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
       'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
       'X-Title': 'SDLC Autopilot'
     },
-    body: JSON.stringify({ model, messages, temperature, ...extraBody })
+    body: JSON.stringify({ model: selectedModel, messages, temperature, ...extraBody })
   });
   if (!response.ok) {
     const errText = await response.text();
@@ -785,9 +785,9 @@ app.get('/health', async (_req, res) => {
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
 
 app.post('/update-env', (req, res) => {
-  const { atlassianToken, bitbucketToken, aiToken } = req.body;
-  if (!atlassianToken && !bitbucketToken && !aiToken) {
-    return res.status(400).json({ error: 'No tokens provided' });
+  const { atlassianToken, bitbucketToken, aiToken, aiModel } = req.body;
+  if (!atlassianToken && !bitbucketToken && !aiToken && !aiModel) {
+    return res.status(400).json({ error: 'No updates provided' });
   }
 
   try {
@@ -822,11 +822,50 @@ app.post('/update-env', (req, res) => {
       }
     }
 
+    if (aiModel) {
+      if (envContent.includes('AI_MODEL=')) {
+        envContent = envContent.replace(/AI_MODEL=.*/, `AI_MODEL=${aiModel}`);
+      } else {
+        envContent += `\nAI_MODEL=${aiModel}`;
+      }
+    }
+
     fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf8');
     res.json({ success: true });
   } catch (err) {
     console.error('Failed to write .env file:', err);
     res.status(500).json({ error: 'Failed to update environment configuration' });
+  }
+});
+
+app.get('/openrouter-models', async (req, res) => {
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return res.status(401).json({ error: 'Missing AI API Key' });
+  }
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+        'X-Title': 'SDLC Autopilot'
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`OpenRouter ${response.status}`);
+    }
+    const data = await response.json();
+    // Simplified for UI: {id, name, description}
+    const models = (data.data || []).map(m => ({
+      id: m.id,
+      name: m.name,
+      description: m.description
+    }));
+    res.json(models);
+  } catch (err) {
+    console.error('Failed to fetch models:', err);
+    res.status(500).json({ error: 'Failed to fetch OpenRouter models' });
   }
 });
 

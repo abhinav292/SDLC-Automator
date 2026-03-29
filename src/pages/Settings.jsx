@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import {
   Settings as SettingsIcon, CheckCircle, AlertTriangle, Loader2,
   ExternalLink, RefreshCw, GitBranch, FileText, CheckSquare, Bell, TrendingUp,
-  FlaskConical
+  FlaskConical, Workflow, Code2, Key, Cpu, Layers, Info, ShieldCheck, Mail, Search
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getJiraProjects, getJiraBaseUrl, getJiraVelocity } from '../services/jiraService';
 import { getConfluenceSpaces, getConfluenceBaseUrl } from '../services/confluenceService';
-import { getBitbucketWorkspaces, getBitbucketRepos } from '../services/bitbucketService';
+import { getBitbucketWorkspaces, getBitbucketRepos, getBitbucketBranches } from '../services/bitbucketService';
 import { diagnoseJiraWrite } from '../services/apiService';
 import './Settings.css';
 
@@ -15,15 +15,25 @@ const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN_
 const EMAIL = typeof __ATLASSIAN_EMAIL__ !== 'undefined' ? __ATLASSIAN_EMAIL__ : '';
 const JIRA_KEY = typeof __JIRA_PROJECT_KEY__ !== 'undefined' ? __JIRA_PROJECT_KEY__ : 'KAN';
 
-const StatusIndicator = ({ status }) => {
-  if (status === 'checking') return <Loader2 size={14} className="animate-spin" style={{ color: 'var(--color-primary)' }} />;
-  if (status === 'ok') return <CheckCircle size={14} style={{ color: 'var(--color-success)' }} />;
-  if (status === 'error') return <AlertTriangle size={14} style={{ color: 'var(--color-error)' }} />;
-  return <div style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid var(--border-subtle)' }} />;
+const StatusBadge = ({ status, label }) => {
+  const iconMap = {
+    checking: <Loader2 size={12} className="animate-spin" />,
+    ok: <CheckCircle size={12} />,
+    error: <AlertTriangle size={12} />,
+    idle: <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'currentColor' }} />
+  };
+
+  return (
+    <div className={`status-badge ${status}`}>
+      {iconMap[status]}
+      <span>{label || (status === 'ok' ? 'Connected' : status === 'error' ? 'Connection Failed' : status)}</span>
+    </div>
+  );
 };
 
 export const Settings = () => {
   const { settings, saveSettings } = useApp();
+  const [activeTab, setActiveTab] = useState('integrations');
   const [jiraStatus, setJiraStatus] = useState('idle');
   const [jiraError, setJiraError] = useState(null);
   const [confluenceStatus, setConfluenceStatus] = useState('idle');
@@ -34,6 +44,13 @@ export const Settings = () => {
   const [confluenceSpaces, setConfluenceSpaces] = useState([]);
   const [bbWorkspaces, setBbWorkspaces] = useState([]);
   const [bbRepos, setBbRepos] = useState([]);
+  const [bbBranches, setBbBranches] = useState([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [isSyncingModels, setIsSyncingModels] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
+  const [syncStatus, setSyncStatus] = useState(null); // 'ok', 'error', or null
+  const [isManualModel, setIsManualModel] = useState(false);
   const [velocityData, setVelocityData] = useState(null);
   const [velocityLoading, setVelocityLoading] = useState(false);
   const [jiraDiagnosing, setJiraDiagnosing] = useState(false);
@@ -42,9 +59,10 @@ export const Settings = () => {
     bbWorkspace: settings.bbWorkspace || '',
     bbRepo: settings.bbRepo || '',
     confluenceSpaceKey: settings.confluenceSpaceKey || '',
-    bbDefaultBranch: settings.bbDefaultBranch || 'master',
+    bitbucketDefaultBranch: settings.bbDefaultBranch || 'master',
     slackWebhookUrl: settings.slackWebhookUrl || '',
-    projectName: settings.projectName || ''
+    projectName: settings.projectName || '',
+    aiModel: settings.aiModel || 'google/gemini-2.0-flash-001'
   });
   const [saved, setSaved] = useState(false);
   const [atlassianToken, setAtlassianToken] = useState('');
@@ -59,6 +77,16 @@ export const Settings = () => {
     if (form.bbWorkspace) loadBbRepos(form.bbWorkspace);
   }, [form.bbWorkspace]);
 
+  useEffect(() => {
+    if (form.bbWorkspace && form.bbRepo) loadBbBranches(form.bbWorkspace, form.bbRepo);
+  }, [form.bbWorkspace, form.bbRepo]);
+
+  useEffect(() => {
+    if (activeTab === 'ai' && availableModels.length === 0 && !isSyncingModels) {
+      fetchOpenRouterModels();
+    }
+  }, [activeTab]);
+
   const testConnections = () => {
     testJira();
     testConfluence();
@@ -69,9 +97,9 @@ export const Settings = () => {
     setJiraStatus('checking');
     setJiraError(null);
     const { projects, error } = await getJiraProjects();
-    setJiraProjects((projects || []).slice(0, 10));
+    setJiraProjects((projects || []).slice(0, 8));
     if (error) { setJiraStatus('error'); setJiraError(error); }
-    else if (!projects || projects.length === 0) { setJiraStatus('error'); setJiraError('No projects returned — check your API token and domain.'); }
+    else if (!projects || projects.length === 0) { setJiraStatus('error'); setJiraError('No projects returned — check your API token.'); }
     else setJiraStatus('ok');
   };
 
@@ -79,9 +107,9 @@ export const Settings = () => {
     setConfluenceStatus('checking');
     setConfluenceError(null);
     const { spaces, error } = await getConfluenceSpaces();
-    setConfluenceSpaces((spaces || []).slice(0, 10));
+    setConfluenceSpaces((spaces || []).slice(0, 8));
     if (error) { setConfluenceStatus('error'); setConfluenceError(error); }
-    else if (!spaces || spaces.length === 0) { setConfluenceStatus('error'); setConfluenceError('No spaces returned — check your Confluence access.'); }
+    else if (!spaces || spaces.length === 0) { setConfluenceStatus('error'); setConfluenceError('No spaces returned.'); }
     else setConfluenceStatus('ok');
   };
 
@@ -91,7 +119,7 @@ export const Settings = () => {
     const { workspaces, error } = await getBitbucketWorkspaces();
     setBbWorkspaces(workspaces || []);
     if (error) { setBitbucketStatus('error'); setBitbucketError(error); }
-    else if (!workspaces || workspaces.length === 0) { setBitbucketStatus('error'); setBitbucketError('No workspaces returned — check your BITBUCKET_API_TOKEN.'); }
+    else if (!workspaces || workspaces.length === 0) { setBitbucketStatus('error'); setBitbucketError('No workspaces found.'); }
     else setBitbucketStatus('ok');
   };
 
@@ -112,6 +140,19 @@ export const Settings = () => {
     setBbRepos(repos);
   };
 
+  const loadBbBranches = async (workspace, repo) => {
+    setLoadingBranches(true);
+    const branches = await getBitbucketBranches(workspace, repo);
+    setBbBranches(branches);
+    
+    // Auto-populate default branch from repo object if it exists in the repo list
+    const selectedRepo = bbRepos.find(r => r.slug === repo);
+    if (selectedRepo && selectedRepo.mainbranch?.name) {
+      setForm(f => ({ ...f, bbDefaultBranch: selectedRepo.mainbranch.name }));
+    }
+    setLoadingBranches(false);
+  };
+
   const loadVelocity = async () => {
     setVelocityLoading(true);
     const data = await getJiraVelocity(JIRA_KEY, 30);
@@ -119,10 +160,31 @@ export const Settings = () => {
     setVelocityLoading(false);
   };
 
+  const fetchOpenRouterModels = async () => {
+    setIsSyncingModels(true);
+    setSyncStatus(null);
+    try {
+      // Endpoint is proxied via vite to BACKEND at 3001
+      const res = await fetch('/api/backend/openrouter-models');
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableModels(data || []);
+        setSyncStatus('ok');
+      } else {
+        const errData = await res.json();
+        setSyncStatus(errData.error || 'Failed to sync');
+      }
+    } catch (err) {
+      console.error('Failed to sync models:', err);
+      setSyncStatus('Connection error. Check backend.');
+    }
+    setIsSyncingModels(false);
+  };
+
   const handleSave = async () => {
     saveSettings(form);
     
-    if (atlassianToken || bitbucketToken || aiToken) {
+    if (atlassianToken || bitbucketToken || aiToken || form.aiModel !== settings.aiModel) {
       try {
         await fetch('/api/backend/update-env', {
           method: 'POST',
@@ -130,14 +192,15 @@ export const Settings = () => {
           body: JSON.stringify({ 
             atlassianToken: atlassianToken || undefined, 
             bitbucketToken: bitbucketToken || undefined,
-            aiToken: aiToken || undefined
+            aiToken: aiToken || undefined,
+            aiModel: form.aiModel
           })
         });
         setAtlassianToken('');
         setBitbucketToken('');
         setAiToken('');
       } catch (err) {
-        console.error('Failed to update tokens:', err);
+        console.error('Failed to update environment:', err);
       }
     }
 
@@ -145,418 +208,484 @@ export const Settings = () => {
     setTimeout(() => setSaved(false), 2500);
   };
 
-  const SettingRow = ({ label, value, hint }) => (
-    <div className="flex justify-between items-center py-3 border-b border-subtle">
-      <div>
-        <span className="text-sm font-medium">{label}</span>
-        {hint && <p className="text-xs text-tertiary mt-0.5">{hint}</p>}
-      </div>
-      <span className="text-sm text-secondary font-mono">{value || '—'}</span>
-    </div>
-  );
+  const menuItems = [
+    { id: 'integrations', label: 'Integrations', icon: <Workflow size={18} />, description: 'Jira & Confluence' },
+    { id: 'git', label: 'Git & Sync', icon: <Code2 size={18} />, description: 'Bitbucket repository' },
+    { id: 'ai', label: 'AI Platform', icon: <Cpu size={18} />, description: 'Model configuration' },
+    { id: 'advanced', label: 'Advanced', icon: <Layers size={18} />, description: 'Calibration & Alerts' },
+  ];
 
-  return (
-    <div className="settings-page" style={{ maxWidth: 820 }}>
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
-          <SettingsIcon size={28} style={{ color: 'var(--color-primary)' }} />
-          Settings
-        </h1>
-        <p className="text-secondary">Manage your Atlassian integrations and pipeline configuration.</p>
-      </header>
-
-      {/* Atlassian Core */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold">Atlassian Connection</h2>
-          <button className="btn btn-secondary text-xs py-1.5 gap-1" onClick={testConnections}>
-            <RefreshCw size={13} /> Test All
-          </button>
-        </div>
-
-        <SettingRow label="Domain" value={DOMAIN} hint="Set via ATLASSIAN_DOMAIN environment variable" />
-        <SettingRow label="Email" value={EMAIL} hint="Set via ATLASSIAN_EMAIL environment variable" />
-        <div className="flex justify-between items-center py-3 border-b border-subtle">
-          <div className="flex-1 pr-6">
-            <span className="text-sm font-medium">API Token</span>
-            <p className="text-xs text-tertiary mt-0.5">Used for both Jira and Confluence by default.</p>
-          </div>
-          <input
-            type="password"
-            className="input-field max-w-xs flex-1 font-mono text-sm"
-            placeholder={DOMAIN ? "•••••••••••• (Type to overwrite)" : "Paste your Atlassian token here"}
-            value={atlassianToken}
-            onChange={(e) => setAtlassianToken(e.target.value)}
-          />
-        </div>
-        <SettingRow label="Jira Project Key" value={JIRA_KEY} hint="Set via JIRA_PROJECT_KEY environment variable" />
+  const renderIntegrations = () => (
+    <div className="settings-tab-content">
+      <div className="settings-section-header">
+        <h2>Atlassian Services</h2>
+        <p>Manage connection status for Jira and Confluence Cloud.</p>
       </div>
 
-      {/* Jira Status */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-4">
+      {/* Jira Card */}
+      <div className="settings-card">
+        <div className="status-header">
           <div className="flex items-center gap-3">
-            <CheckSquare size={20} style={{ color: '#60a5fa' }} />
-            <h2 className="text-lg font-semibold">Jira</h2>
-            <StatusIndicator status={jiraStatus} />
-            {jiraStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
-            {jiraStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+            <CheckSquare size={20} className="text-blue-400" />
+            <h3 className="font-bold text-lg">Jira Cloud</h3>
           </div>
-          <button className="btn btn-secondary text-xs py-1 px-2 gap-1" onClick={testJira} disabled={jiraStatus === 'checking'}>
-            <RefreshCw size={12} /> Re-test
-          </button>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={jiraStatus} />
+            <button className="btn btn-secondary text-xs px-2 py-1" onClick={testJira}>
+              <RefreshCw size={12} className={jiraStatus === 'checking' ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
 
-        {jiraStatus === 'error' && jiraError && (
-          <div className="p-3 rounded-lg mb-3 border" style={{ background: 'var(--color-error-bg, rgba(239,68,68,0.08))', borderColor: 'rgba(239,68,68,0.25)' }}>
-            <p className="text-xs font-semibold" style={{ color: 'var(--color-error)' }}>Error: {jiraError}</p>
-            <p className="text-xs text-tertiary mt-1">Check ATLASSIAN_DOMAIN, ATLASSIAN_EMAIL, and ATLASSIAN_API_TOKEN in your environment.</p>
+        <div className="grid grid-cols-2 gap-6">
+          <div className="input-group">
+            <label className="input-label">Domain <Info size={12} className="info-icon" title="Set via ATLASSIAN_DOMAIN" /></label>
+            <input className="input-field opacity-60 pointer-events-none" value={DOMAIN} readOnly />
           </div>
-        )}
+          <div className="input-group">
+            <label className="input-label">Email <Info size={12} className="info-icon" title="Set via ATLASSIAN_EMAIL" /></label>
+            <input className="input-field opacity-60 pointer-events-none" value={EMAIL} readOnly />
+          </div>
+        </div>
+
+        <div className="input-group">
+          <label className="input-label">API Token <ShieldCheck size={12} /></label>
+          <input 
+            type="password" 
+            className="input-field font-mono" 
+            placeholder={atlassianToken ? "••••••••••••" : "Type to replace current token..."}
+            value={atlassianToken}
+            onChange={e => setAtlassianToken(e.target.value)}
+          />
+          <p className="input-hint">Used for Jira and Confluence authentication.</p>
+        </div>
 
         {jiraStatus === 'ok' && (
-          <>
-            <p className="text-sm text-secondary mb-3">
-              Creating stories in project <span className="text-primary font-mono font-bold">{JIRA_KEY}</span>.
-              {' '}<a href={`${getJiraBaseUrl()}/browse/${JIRA_KEY}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary">
-                Open Jira <ExternalLink size={12} />
-              </a>
+          <div className="mt-4 p-4 rounded-xl bg-blue-500/5 border border-blue-500/10">
+            <p className="text-sm font-medium mb-3 flex items-center justify-between">
+              Connected Project: <span className="text-blue-400 font-mono">{JIRA_KEY}</span>
             </p>
-            {jiraProjects.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs text-tertiary uppercase font-semibold mb-2">Available Projects</p>
-                <div className="flex flex-wrap gap-2">
-                  {jiraProjects.map(p => (
-                    <span key={p.id} className={`badge ${p.key === JIRA_KEY ? 'badge-info' : 'badge-neutral'}`}>
-                      {p.key} – {p.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Jira Write-access diagnostic */}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-subtle">
-          <div>
-            <p className="text-xs font-medium">Test Write Access</p>
-            <p className="text-xs text-tertiary">Creates and immediately deletes a test issue to verify push permissions.</p>
-          </div>
-          <button
-            className="btn btn-secondary text-xs py-1 px-2 gap-1 flex-shrink-0 ml-3"
-            onClick={runJiraDiagnose}
-            disabled={jiraDiagnosing}
-          >
-            {jiraDiagnosing ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
-            {jiraDiagnosing ? 'Testing…' : 'Test Jira Write'}
-          </button>
-        </div>
-        {jiraDiagResult && (
-          <div className={`mt-2 p-2 rounded text-xs ${jiraDiagResult.success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-            {jiraDiagResult.success ? (
-              <>
-                <CheckCircle size={11} className="inline mr-1" />
-                Write access confirmed — test issue created and deleted successfully.
-                {jiraDiagResult.warnings?.map((w, i) => <span key={i} className="block text-yellow-400 mt-1">⚠ {w}</span>)}
-              </>
-            ) : (
-              <>
-                <AlertTriangle size={11} className="inline mr-1" />
-                {jiraDiagResult.error}
-                {jiraDiagResult.detail && <span className="block text-tertiary mt-0.5">{jiraDiagResult.detail}</span>}
-              </>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {jiraProjects.map(p => (
+                <span key={p.id} className={`badge text-[10px] px-2 py-0.5 ${p.key === JIRA_KEY ? 'badge-info' : 'badge-neutral opacity-50'}`}>
+                  {p.key}
+                </span>
+              ))}
+            </div>
+            <a href={`${getJiraBaseUrl()}/browse/${JIRA_KEY}`} target="_blank" rel="noopener noreferrer" className="mt-4 text-xs text-blue-400 flex items-center gap-1 hover:underline">
+              View in Jira <ExternalLink size={12} />
+            </a>
           </div>
         )}
       </div>
 
-      {/* Confluence */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-4">
+      {/* Confluence Card */}
+      <div className="settings-card">
+        <div className="status-header">
           <div className="flex items-center gap-3">
-            <FileText size={20} style={{ color: '#a78bfa' }} />
-            <h2 className="text-lg font-semibold">Confluence</h2>
-            <StatusIndicator status={confluenceStatus} />
-            {confluenceStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
-            {confluenceStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+            <FileText size={20} className="text-purple-400" />
+            <h3 className="font-bold text-lg">Confluence</h3>
           </div>
-          <button className="btn btn-secondary text-xs py-1 px-2 gap-1" onClick={testConfluence} disabled={confluenceStatus === 'checking'}>
-            <RefreshCw size={12} /> Re-test
-          </button>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={confluenceStatus} />
+            <button className="btn btn-secondary text-xs px-2 py-1" onClick={testConfluence}>
+              <RefreshCw size={12} className={confluenceStatus === 'checking' ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
 
-        {confluenceStatus === 'error' && confluenceError && (
-          <div className="p-3 rounded-lg mb-3 border" style={{ background: 'var(--color-error-bg, rgba(239,68,68,0.08))', borderColor: 'rgba(239,68,68,0.25)' }}>
-            <p className="text-xs font-semibold" style={{ color: 'var(--color-error)' }}>Error: {confluenceError}</p>
-            <p className="text-xs text-tertiary mt-1">Confluence uses the same ATLASSIAN_API_TOKEN as Jira. Confirm your account has Confluence access.</p>
-          </div>
-        )}
-
-        <div className="mb-4">
-          <label className="text-sm font-medium block mb-1">Space Key</label>
-          <div className="flex gap-3">
-            <input
-              className="input-field flex-1"
-              placeholder="e.g. ENG or ~username"
-              value={form.confluenceSpaceKey}
-              onChange={e => setForm(f => ({ ...f, confluenceSpaceKey: e.target.value }))}
-            />
-          </div>
-          <p className="text-xs text-tertiary mt-1">The key of the Confluence space where solutioning docs will be published.</p>
+        <div className="input-group">
+          <label className="input-label">Target Space Key</label>
+          <input 
+            className="input-field" 
+            placeholder="e.g. ENG or PRODUCT"
+            value={form.confluenceSpaceKey}
+            onChange={e => setForm(f => ({ ...f, confluenceSpaceKey: e.target.value }))}
+          />
+          <p className="input-hint">The space where Technical Solutioning docs will be published.</p>
         </div>
 
         {confluenceStatus === 'ok' && confluenceSpaces.length > 0 && (
-          <div>
-            <p className="text-xs text-tertiary uppercase font-semibold mb-2">Available Spaces — click to select</p>
+          <div className="mt-2">
+            <p className="text-[10px] uppercase font-bold text-tertiary mb-2">Available Spaces</p>
             <div className="flex flex-wrap gap-2">
               {confluenceSpaces.map(s => (
                 <button
                   key={s.key}
-                  className={`badge cursor-pointer ${form.confluenceSpaceKey === s.key ? 'badge-info' : 'badge-neutral'}`}
+                  className={`badge text-[10px] cursor-pointer hover:border-purple-500/50 transition-colors ${form.confluenceSpaceKey === s.key ? 'badge-info' : 'badge-neutral'}`}
                   onClick={() => setForm(f => ({ ...f, confluenceSpaceKey: s.key }))}
                 >
-                  {s.key} – {s.name}
+                  {s.key}
                 </button>
               ))}
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
 
-        {confluenceStatus === 'ok' && (
-          <a href={getConfluenceBaseUrl()} target="_blank" rel="noopener noreferrer" className="text-xs text-primary flex items-center gap-1 mt-3">
-            Open Confluence <ExternalLink size={11} />
-          </a>
-        )}
+  const renderGit = () => (
+    <div className="settings-tab-content">
+      <div className="settings-section-header">
+        <h2>Bitbucket Config</h2>
+        <p>Configure where code and pull requests are pushed.</p>
       </div>
 
-      {/* AI Configuration */}
-      <div className="card mb-6 border-indigo-500/20 bg-indigo-900/5">
-        <div className="flex items-center gap-3 mb-4">
-          <Loader2 size={20} style={{ color: 'var(--color-primary)' }} />
-          <h2 className="text-lg font-semibold">AI Configuration</h2>
-        </div>
-        <p className="text-sm text-secondary mb-4">
-          Configure the API keys used for story extraction and code scaffolding.
-        </p>
-        <div className="mb-4">
-          <label className="text-sm font-medium block mb-1">OpenRouter / OpenAI API Key</label>
-          <input
-            type="password"
-            className="input-field font-mono text-sm"
-            placeholder="•••••••••••• (Type to overwrite)"
-            value={aiToken}
-            onChange={(e) => setAiToken(e.target.value)}
-          />
-          <p className="text-xs text-tertiary mt-2">Required for the AI to analyze your repo and generate code. Supports OpenRouter (preferred) or OpenAI.</p>
-        </div>
-      </div>
-
-      {/* Bitbucket */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="settings-card">
+        <div className="status-header">
           <div className="flex items-center gap-3">
-            <GitBranch size={20} style={{ color: '#818cf8' }} />
-            <h2 className="text-lg font-semibold">Bitbucket</h2>
-            <StatusIndicator status={bitbucketStatus} />
-            {bitbucketStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
-            {bitbucketStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+            <GitBranch size={20} className="text-indigo-400" />
+            <h3 className="font-bold text-lg">Repository Settings</h3>
           </div>
-          <button className="btn btn-secondary text-xs py-1 px-2 gap-1" onClick={testBitbucket} disabled={bitbucketStatus === 'checking'}>
-            <RefreshCw size={12} /> Re-test
-          </button>
+          <StatusBadge status={bitbucketStatus} />
         </div>
 
-        {bitbucketStatus === 'error' && bitbucketError && (
-          <div className="p-3 rounded-lg mb-3 border" style={{ background: 'var(--color-error-bg, rgba(239,68,68,0.08))', borderColor: 'rgba(239,68,68,0.25)' }}>
-            <p className="text-xs font-semibold" style={{ color: 'var(--color-error)' }}>Error: {bitbucketError}</p>
-            <p className="text-xs text-tertiary mt-1">Ensure BITBUCKET_API_TOKEN is set in Replit Secrets with your Bitbucket App Password or token.</p>
-          </div>
-        )}
-
-        <div className="mb-4">
-          <label className="text-sm font-medium block mb-1">Bitbucket API Token</label>
-          <input
-            type="password"
-            className="input-field font-mono text-sm"
-            placeholder="•••••••••••• (Type to overwrite)"
+        <div className="input-group">
+          <label className="input-label">Bitbucket API Token <Key size={12} /></label>
+          <input 
+            type="password" 
+            className="input-field font-mono" 
+            placeholder="Type to replace Bitbucket token..."
             value={bitbucketToken}
-            onChange={(e) => setBitbucketToken(e.target.value)}
+            onChange={e => setBitbucketToken(e.target.value)}
           />
-          <p className="text-xs text-tertiary mt-1">Leave blank to keep current token. Replaces BITBUCKET_API_TOKEN.</p>
+          <p className="input-hint">Requires 'Pull Request' and 'Repository' write scopes.</p>
         </div>
 
-        <div className="bitbucket-fields-grid">
-          <div>
-            <label className="text-sm font-medium block mb-1">Workspace</label>
+        <div className="grid grid-cols-2 gap-6 mb-6">
+          <div className="input-group mb-0">
+            <label className="input-label">Workspace</label>
             {bbWorkspaces.length > 0 ? (
-              <select
-                className="input-field"
-                value={form.bbWorkspace}
-                onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value, bbRepo: '' }))}
-              >
-                <option value="">Select workspace...</option>
-                {bbWorkspaces.map(w => (
-                  <option key={w.slug} value={w.slug}>{w.name || w.slug}</option>
-                ))}
+              <select className="input-field" value={form.bbWorkspace} onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value, bbRepo: '' }))}>
+                <option value="">Select Workspace</option>
+                {bbWorkspaces.map(w => <option key={w.slug} value={w.slug}>{w.name || w.slug}</option>)}
               </select>
             ) : (
-              <input
-                className="input-field"
-                placeholder="e.g. my-workspace"
-                value={form.bbWorkspace}
-                onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value }))}
-              />
+              <input className="input-field" value={form.bbWorkspace} onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value }))} />
             )}
           </div>
-          <div>
-            <label className="text-sm font-medium block mb-1">Repository</label>
+          <div className="input-group mb-0">
+            <label className="input-label">Repository</label>
             {bbRepos.length > 0 ? (
               <select
                 className="input-field"
                 value={form.bbRepo}
-                onChange={e => setForm(f => ({ ...f, bbRepo: e.target.value }))}
+                onChange={e => {
+                  const repoSlug = e.target.value;
+                  setForm(f => ({ ...f, bbRepo: repoSlug }));
+                  // Immediately check for mainbranch on the selected repo object
+                  const selected = bbRepos.find(r => r.slug === repoSlug);
+                  if (selected && selected.mainbranch?.name) {
+                    setForm(f => ({ ...f, bbDefaultBranch: selected.mainbranch.name }));
+                  }
+                }}
               >
-                <option value="">Select repository...</option>
+                <option value="">Select Repository</option>
                 {bbRepos.map(r => (
                   <option key={r.slug} value={r.slug}>{r.name || r.slug}</option>
                 ))}
               </select>
             ) : (
-              <input
-                className="input-field"
-                placeholder="e.g. my-repo"
-                value={form.bbRepo}
-                onChange={e => setForm(f => ({ ...f, bbRepo: e.target.value }))}
-              />
+              <input className="input-field" value={form.bbRepo} onChange={e => setForm(f => ({ ...f, bbRepo: e.target.value }))} />
             )}
           </div>
         </div>
 
         <div className="mt-4">
-          <label className="text-sm font-medium block mb-1">Default Branch</label>
-          <input
-            className="input-field"
-            placeholder="master"
-            value={form.bbDefaultBranch}
-            onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))}
-            style={{ maxWidth: 160 }}
-          />
-          <p className="text-xs text-tertiary mt-1">Feature branches will be cut from this branch.</p>
+          <label className="input-label">
+            Default Branch
+            {loadingBranches && <Loader2 size={10} className="animate-spin ml-2 inline" />}
+          </label>
+          <div className="flex gap-2">
+            {bbBranches.length > 0 ? (
+              <select
+                className="input-field max-w-[200px]"
+                value={form.bbDefaultBranch}
+                onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))}
+              >
+                <option value="">Select branch...</option>
+                {bbBranches.map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="input-field max-w-[200px]"
+                placeholder="master"
+                value={form.bbDefaultBranch}
+                onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))}
+              />
+            )}
+            <button
+              className="btn btn-secondary text-xs px-2 py-1"
+              title="Refresh branches"
+              onClick={() => loadBbBranches(form.bbWorkspace, form.bbRepo)}
+              disabled={!form.bbWorkspace || !form.bbRepo || loadingBranches}
+            >
+              <RefreshCw size={12} className={loadingBranches ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <p className="input-hint">Feature branches will be cut from this branch.</p>
         </div>
+      </div>
+    </div>
+  );
 
-        <p className="text-xs text-tertiary mt-3">
-          Branches will be created as <span className="font-mono text-primary">feature/[JIRAKEY]-[story-title]</span>
-        </p>
+  const renderAI = () => (
+    <div className="settings-tab-content">
+      <div className="settings-section-header">
+        <h2>AI Engine</h2>
+        <p>Configure the intelligence layer for story extraction and code generation.</p>
       </div>
 
-      {/* Notifications */}
-      <div className="card mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Bell size={20} style={{ color: '#fb923c' }} />
-          <h2 className="text-lg font-semibold">Notifications</h2>
+      <div className="settings-card border-indigo-500/20 bg-indigo-500/[0.02]">
+        <div className="flex items-center gap-3 mb-6">
+          <Cpu size={24} className="text-indigo-400" />
+          <h3 className="font-bold text-lg">Model Configuration</h3>
         </div>
 
-        <div className="mb-4">
-          <label className="text-sm font-medium block mb-1">Project Name</label>
-          <input
-            className="input-field"
-            placeholder="e.g. Payments Platform Q2"
-            value={form.projectName}
-            onChange={e => setForm(f => ({ ...f, projectName: e.target.value }))}
+        <div className="input-group">
+          <label className="input-label">OpenRouter / OpenAI API Key <Key size={12} className="ml-1 opacity-50" /></label>
+          <input 
+            type="password" 
+            className="input-field font-mono" 
+            placeholder="Type to replace AI token..."
+            value={aiToken}
+            onChange={e => setAiToken(e.target.value)}
           />
-          <p className="text-xs text-tertiary mt-1">Used in the stakeholder email subject line and Confluence page title.</p>
+          <p className="input-hint">Used for all AI processing steps (Gemini, GPT, etc.).</p>
         </div>
 
-        <div>
-          <label className="text-sm font-medium block mb-1">Slack / Teams Webhook URL</label>
-          <input
-            className="input-field"
-            placeholder="https://hooks.slack.com/services/..."
-            value={form.slackWebhookUrl}
-            onChange={e => setForm(f => ({ ...f, slackWebhookUrl: e.target.value }))}
-          />
-          <p className="text-xs text-tertiary mt-1">
-            Paste an incoming webhook URL to receive a Slack or Teams notification when a pipeline completes.
-            Supports Slack (<code>hooks.slack.com</code>), Teams (<code>outlook.office.com</code>), and Discord webhooks.
+        <div className="input-group">
+          <div className="flex items-center justify-between mb-3">
+            <label className="input-label mb-0">AI Model Selection & Search</label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input 
+                type="checkbox" 
+                className="w-4 h-4 rounded border-white/10 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
+                checked={isManualModel}
+                onChange={e => setIsManualModel(e.target.checked)}
+              />
+              <span className="text-[10px] uppercase font-bold text-tertiary">Manual Entry Mode</span>
+            </label>
+          </div>
+
+          {!isManualModel && (
+            <div className="mb-3 relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none" />
+              <input 
+                className="input-field pl-10 h-11 text-sm bg-white/5 border-white/10 hover:border-white/20 transition-all focus:border-indigo-500/50" 
+                placeholder="Search OpenRouter models (e.g. claude, gpt, llama)..."
+                value={modelSearch}
+                onChange={e => setModelSearch(e.target.value)}
+              />
+            </div>
+          )}
+          
+          <div className="flex gap-2">
+            {isManualModel ? (
+              <input 
+                className="input-field font-mono" 
+                placeholder="e.g. anthropic/claude-3.5-sonnet"
+                value={form.aiModel}
+                onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
+              />
+            ) : (
+              <>
+                <select 
+                  className="input-field" 
+                  value={form.aiModel}
+                  onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
+                >
+                  <optgroup label="Default & Common Platforms">
+                    <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash (Recommended)</option>
+                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                  </optgroup>
+                  
+                  <optgroup label={`Available Models (${availableModels.length} synchronized)`}>
+                    {(availableModels || [])
+                      .filter(m => {
+                        const q = modelSearch.toLowerCase();
+                        return m.id.toLowerCase().includes(q) || (m.name && m.name.toLowerCase().includes(q));
+                      })
+                      .map(m => (
+                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                      ))
+                    }
+                  </optgroup>
+                </select>
+                <button 
+                  className="btn btn-secondary text-xs px-4" 
+                  onClick={fetchOpenRouterModels}
+                  disabled={isSyncingModels}
+                  title="Refresh models from OpenRouter"
+                >
+                  <RefreshCw size={16} className={isSyncingModels ? 'animate-spin' : ''} />
+                </button>
+              </>
+            )}
+          </div>
+          <p className="input-hint">
+            {isManualModel 
+              ? "Type the exact model ID from OpenRouter's model list if it's not in the dropdown." 
+              : "Search through over 300+ models available via the OpenRouter API."
+            }
           </p>
-          {form.slackWebhookUrl && (
-            <div className="flex items-center gap-1 mt-2 text-xs" style={{ color: 'var(--color-success)' }}>
-              <CheckCircle size={11} /> Webhook configured – notifications will be sent on pipeline completion
+        </div>
+
+        <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-500/5">
+          <div className="flex items-start gap-3">
+            <ShieldCheck size={18} className="text-indigo-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-indigo-200">Current Model: {form.aiModel}</p>
+              <p className="text-xs text-tertiary mt-1">High-speed reasoning model optimized for repo analysis and code scaffolding.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderAdvanced = () => (
+    <div className="settings-tab-content">
+      <div className="settings-section-header">
+        <h2>Advanced & Tools</h2>
+        <p>Diagnostics, alerts, and historical data calibration.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        {/* Notifications */}
+        <div className="settings-card">
+          <div className="flex items-center gap-3 mb-6">
+            <Bell size={20} className="text-orange-400" />
+            <h3 className="font-bold text-lg">Alerts & Notifications</h3>
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Project Identifier</label>
+            <input 
+              className="input-field" 
+              placeholder="e.g. Payments MVP"
+              value={form.projectName} 
+              onChange={e => setForm(f => ({ ...f, projectName: e.target.value }))}
+            />
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Webhook URL <Mail size={12} className="ml-1 opacity-50" /></label>
+            <input 
+              className="input-field" 
+              placeholder="Slack, Teams, or Discord URL"
+              value={form.slackWebhookUrl} 
+              onChange={e => setForm(f => ({ ...f, slackWebhookUrl: e.target.value }))}
+            />
+            <p className="input-hint">Receives a deep-link summary when a pipeline sync completes.</p>
+          </div>
+        </div>
+
+        {/* Calibration */}
+        <div className="settings-card">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <TrendingUp size={20} className="text-emerald-400" />
+              <h3 className="font-bold text-lg">Team Velocity</h3>
+            </div>
+            <button className="btn btn-secondary text-xs px-3 py-1.5" onClick={loadVelocity} disabled={velocityLoading}>
+              {velocityLoading ? <RefreshCw size={13} className="animate-spin mr-2" /> : <TrendingUp size={13} className="mr-2" />}
+              Fetch History
+            </button>
+          </div>
+
+          <p className="text-sm text-secondary mb-6">Calibrates AI story points based on last 30 days of Jira history.</p>
+
+          {velocityData && (
+            <div className="grid grid-cols-3 gap-4">
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                <p className="text-2xl font-bold text-emerald-400">{velocityData.average || '—'}</p>
+                <p className="text-[10px] uppercase font-bold text-tertiary mt-1">Avg Points</p>
+              </div>
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                <p className="text-2xl font-bold text-emerald-400">{velocityData.count}</p>
+                <p className="text-[10px] uppercase font-bold text-tertiary mt-1">Sample Size</p>
+              </div>
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
+                <p className="text-2xl font-bold text-indigo-400">{velocityData.total}</p>
+                <p className="text-[10px] uppercase font-bold text-tertiary mt-1">Total Issues</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Diagnostics */}
+        <div className="settings-card border-red-500/10">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <FlaskConical size={20} className="text-red-400" />
+              <h3 className="font-bold text-lg">Jira Diagnostics</h3>
+            </div>
+            <button className="btn btn-secondary text-xs px-3 py-1.5" onClick={runJiraDiagnose} disabled={jiraDiagnosing}>
+              {jiraDiagnosing ? <Loader2 size={13} className="animate-spin mr-2" /> : <CheckCircle size={13} className="mr-2" />}
+              Test Write
+            </button>
+          </div>
+          <p className="text-xs text-tertiary">Creates and deletes a test issue to verify Write permissions and Custom Field structure.</p>
+          {jiraDiagResult && (
+            <div className={`mt-4 p-3 rounded-lg text-xs ${jiraDiagResult.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+              {jiraDiagResult.success ? '✓ Jira write permissions confirmed.' : `✗ ${jiraDiagResult.error}`}
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
 
-      {/* Story Point Calibration */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <TrendingUp size={20} style={{ color: '#34d399' }} />
-            <h2 className="text-lg font-semibold">Story Point Calibration</h2>
-          </div>
-          <button
-            className="btn btn-secondary text-xs py-1.5 gap-1"
-            onClick={loadVelocity}
-            disabled={velocityLoading || jiraStatus !== 'ok'}
-          >
-            {velocityLoading
-              ? <><Loader2 size={13} className="animate-spin" /> Fetching...</>
-              : <><RefreshCw size={13} /> Fetch Velocity</>}
-          </button>
+  const getTabContent = () => {
+    switch (activeTab) {
+      case 'integrations': return renderIntegrations();
+      case 'git': return renderGit();
+      case 'ai': return renderAI();
+      case 'advanced': return renderAdvanced();
+      default: return renderIntegrations();
+    }
+  };
+
+  return (
+    <div className="settings-page">
+      <aside className="settings-sidebar">
+        <div className="px-3 mb-6">
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <SettingsIcon size={20} className="text-indigo-400" />
+            Control Panel
+          </h1>
+          <p className="text-[10px] uppercase font-bold text-tertiary mt-1">SDLC Autopilot v1.2</p>
         </div>
 
-        <p className="text-sm text-secondary mb-4">
-          Fetch your team's historical Jira velocity to calibrate AI story point estimates.
-          The system queries recently completed stories in project <span className="font-mono text-primary">{JIRA_KEY}</span>.
-        </p>
-
-        {jiraStatus !== 'ok' && (
-          <p className="text-xs text-warning">Connect Jira first to fetch velocity data.</p>
-        )}
-
-        {velocityData && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-            <div className="p-3 bg-root border border-subtle rounded-lg text-center">
-              <div className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>
-                {velocityData.average ?? '—'}
-              </div>
-              <div className="text-xs text-tertiary mt-1">Avg Story Points</div>
+        {menuItems.map(item => (
+          <button
+            key={item.id}
+            className={`settings-nav-item ${activeTab === item.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(item.id)}
+          >
+            {item.icon}
+            <div className="text-left">
+              <div className="block">{item.label}</div>
+              <div className="text-[10px] opacity-60 font-normal">{item.description}</div>
             </div>
-            <div className="p-3 bg-root border border-subtle rounded-lg text-center">
-              <div className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
-                {velocityData.count}
-              </div>
-              <div className="text-xs text-tertiary mt-1">Stories with Points</div>
-            </div>
-            <div className="p-3 bg-root border border-subtle rounded-lg text-center">
-              <div className="text-2xl font-bold" style={{ color: 'var(--color-warning)' }}>
-                {velocityData.total}
-              </div>
-              <div className="text-xs text-tertiary mt-1">Done Stories (total)</div>
-            </div>
-          </div>
-        )}
+          </button>
+        ))}
 
-        {velocityData && velocityData.average === null && (
-          <p className="text-xs text-tertiary mt-2">
-            No story point data found on completed issues. Ensure your Jira project uses the Story Points field (customfield_10016).
-          </p>
-        )}
+        <div className="mt-auto pt-6 px-3">
+          <button className="btn btn-primary w-full py-4 rounded-2xl" onClick={handleSave}>
+            {saved ? <><CheckCircle size={18} /> Saved!</> : 'Apply Changes'}
+          </button>
+        </div>
+      </aside>
 
-        {velocityData && velocityData.average !== null && (
-          <p className="text-xs text-tertiary mt-3">
-            AI estimates will use <strong>{velocityData.average} pts</strong> as the team baseline when calibrating new stories.
-            Extraction prompts are automatically informed by this value.
-          </p>
-        )}
-      </div>
-
-      <div className="flex justify-end">
-        <button className="btn btn-primary px-8 py-3" onClick={handleSave}>
-          {saved ? <><CheckCircle size={16} /> Saved!</> : 'Save Settings'}
-        </button>
-      </div>
+      <main className="settings-content">
+        {getTabContent()}
+      </main>
     </div>
   );
 };
