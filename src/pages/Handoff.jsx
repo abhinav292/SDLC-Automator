@@ -443,26 +443,33 @@ export const Handoff = () => {
               {approvedStories.map(story => {
                 const result = jiraResults[story.id];
                 return (
-                  <div key={story.id} className="p-3 border border-subtle bg-surface-elevated rounded flex justify-between items-center">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {result?.success ? (
-                        <span className="text-blue-400 font-mono text-xs font-bold whitespace-nowrap">{result.key}</span>
-                      ) : (
-                        <span className="text-error text-xs font-bold">FAILED</span>
+                  <div key={story.id} className="p-3 border border-subtle bg-surface-elevated rounded">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {result?.success ? (
+                          <span className="text-blue-400 font-mono text-xs font-bold whitespace-nowrap">{result.key}</span>
+                        ) : (
+                          <AlertTriangle size={12} style={{ color: 'var(--color-error)', flexShrink: 0 }} />
+                        )}
+                        <span className="text-xs font-medium truncate">{story.title}</span>
+                      </div>
+                      {result?.success && result.url && (
+                        <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-secondary hover:text-primary transition-colors flex-shrink-0 ml-2">
+                          <ExternalLink size={13} />
+                        </a>
                       )}
-                      <span className="text-xs font-medium truncate">{story.title}</span>
                     </div>
-                    {result?.success && result.url && (
-                      <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-secondary hover:text-primary transition-colors flex-shrink-0 ml-2">
-                        <ExternalLink size={13} />
-                      </a>
+                    {result && !result.success && result.error && (
+                      <p className="text-xs mt-1.5 pl-1" style={{ color: 'var(--color-error)' }}>
+                        {result.error}
+                      </p>
                     )}
                   </div>
                 );
               })}
             </div>
             {!allJiraSuccess && (
-              <p className="text-xs text-tertiary mt-3">Some issues failed. Check your Jira project key in Settings.</p>
+              <p className="text-xs text-tertiary mt-3">Some stories failed. Check your Jira project key and credentials in Settings.</p>
             )}
           </div>
 
@@ -484,7 +491,7 @@ export const Handoff = () => {
                           {branch?.success
                             ? <CheckCircle size={12} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
                             : <AlertTriangle size={12} style={{ color: 'var(--color-error)', flexShrink: 0 }} />}
-                          <span className="text-xs text-secondary font-mono truncate">{branch?.name || 'branch-name'}</span>
+                          <span className="text-xs text-secondary font-mono truncate">{branch?.name || story.title}</span>
                         </div>
                         {branch?.success && branch.url && (
                           <a href={branch.url} target="_blank" rel="noopener noreferrer" className="text-secondary hover:text-primary transition-colors flex-shrink-0 ml-2">
@@ -492,14 +499,23 @@ export const Handoff = () => {
                           </a>
                         )}
                       </div>
-                      {pr?.success && pr.url && (
+                      {branch && !branch.success && branch.error && (
+                        <p className="text-xs mt-0.5 pl-1" style={{ color: 'var(--color-error)' }}>
+                          Branch: {branch.error}
+                        </p>
+                      )}
+                      {pr?.success && pr.url ? (
                         <div className="flex items-center gap-1 mt-1">
                           <GitPullRequest size={11} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
                           <a href={pr.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate">
                             PR #{pr.id} (with checklist)
                           </a>
                         </div>
-                      )}
+                      ) : pr && !pr.success && pr.error ? (
+                        <p className="text-xs mt-1 pl-1" style={{ color: 'var(--color-warning)' }}>
+                          PR: {pr.error}
+                        </p>
+                      ) : null}
                     </div>
                   );
                 })}
