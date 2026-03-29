@@ -13,18 +13,18 @@
 
 .artifact-card {
   padding: var(--spacing-5);
-  background-color: var(--bg-surface);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .artifact-card:hover {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--border-hover);
   transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.4);
 }
 
 .sync-progress-grid {
@@ -48,7 +48,7 @@
   margin: 0 auto 2rem;
 }
 
-/* Handoff action row (flex wrappers) */
+/* Handoff action row */
 .surface-elevated {
   background-color: var(--bg-surface-elevated);
 }

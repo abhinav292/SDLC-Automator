@@ -14,13 +14,13 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 1.25rem;
-  padding: 1.25rem;
+  gap: 0.35rem;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 1rem;
   height: fit-content;
   position: sticky;
   top: 1.5rem;
@@ -30,27 +30,28 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.85rem 1.1rem;
-  border-radius: 0.85rem;
-  color: var(--color-tertiary);
-  font-size: 0.925rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
   font-weight: 500;
   border: 1px solid transparent;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   background: transparent;
 }
 
 .settings-nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--color-secondary);
+  background: var(--bg-interactive-hover);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
 }
 
 .settings-nav-item.active {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--color-primary);
-  border-color: rgba(99, 102, 241, 0.25);
-  box-shadow: 0 4px 20px -8px rgba(99, 102, 241, 0.3);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.05));
+  color: var(--color-primary-hover);
+  border-color: rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 12px -4px rgba(99, 102, 241, 0.25);
 }
 
 /* ── Content Area ───────────────────────────────────── */
@@ -65,32 +66,32 @@
 }
 
 .settings-section-header h2 {
-  font-size: 1.75rem;
+  font-size: 1.625rem;
   font-weight: 700;
-  color: var(--color-text);
-  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 
 .settings-section-header p {
-  color: var(--color-tertiary);
-  font-size: 0.925rem;
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
 }
 
 /* ── Modern Card Styles ───────────────────────────── */
 .settings-card {
-  background: var(--bg-card);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 1.25rem;
+  border-radius: var(--radius-xl);
   padding: 1.75rem;
   margin-bottom: 1.75rem;
-  transition: transform 0.2s ease, border-color 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .settings-card:hover {
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--border-hover);
 }
 
 .settings-grid {
@@ -109,18 +110,18 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.5rem;
-  font-size: 0.825rem;
-  font-weight: 600;
-  color: var(--color-secondary);
-  letter-spacing: 0.025em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .input-hint {
-  font-size: 0.75rem;
-  color: var(--color-tertiary);
+  font-size: 0.72rem;
+  color: var(--text-muted);
   margin-top: 0.5rem;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 /* ── Status Header ───────────────────────────────── */
@@ -136,21 +137,35 @@
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
   font-weight: 600;
 }
 
-.status-badge.ok { background: rgba(34, 197, 94, 0.1); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.2); }
-.status-badge.error { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
-.status-badge.idle { background: rgba(255, 255, 255, 0.05); color: var(--color-tertiary); border: 1px solid rgba(255, 255, 255, 0.1); }
+.status-badge.ok {
+  background: rgba(34, 197, 94, 0.08);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+.status-badge.error {
+  background: rgba(244, 63, 94, 0.08);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.15);
+}
+
+.status-badge.idle {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
 
 /* ── Tooltips & Info ─────────────────────────────── */
 .info-icon {
   cursor: help;
-  color: var(--color-tertiary);
+  color: var(--text-muted);
   transition: color 0.2s ease;
 }
 
@@ -164,7 +179,7 @@
     flex-direction: column;
     padding: 0 1rem;
   }
-  
+
   .settings-sidebar {
     width: 100%;
     flex-direction: row;
@@ -172,7 +187,7 @@
     position: static;
     padding: 0.75rem;
   }
-  
+
   .settings-nav-item {
     white-space: nowrap;
     padding: 0.6rem 1rem;
