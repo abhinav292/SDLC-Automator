@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { createJiraEpic, createJiraStory, createJiraSubTask, createJiraQASubTask, linkJiraIssues, getJiraBaseUrl, resetJiraProjectStyleCache } from '../services/jiraService';
-import { createBitbucketBranch, createBitbucketPR, getBitbucketBranchName } from '../services/bitbucketService';
+import { createBitbucketBranch, createBitbucketPR, getBitbucketBranchName, commitFilesToBitbucket } from '../services/bitbucketService';
 import { createConfluencePage, getConfluenceBaseUrl } from '../services/confluenceService';
 import { generatePRChecklist, generateStakeholderEmail, notifySlack, generateQATasks, generateCode, generateSolutioningDoc } from '../services/apiService';
 import { fetchRepoContext } from '../services/bitbucketService';
@@ -86,8 +86,9 @@ export const Handoff = () => {
   const [phaseStatuses, setPhaseStatuses] = useState({
     jira: 'waiting',
     bitbucket: 'waiting',
-    prchecklist: 'waiting',
     codeGen: 'waiting',
+    commit: 'waiting',
+    prchecklist: 'waiting',
     confluence: 'waiting',
     email: 'waiting',
     notifications: 'waiting'
@@ -212,13 +213,13 @@ export const Handoff = () => {
     // ── Step 2: Bitbucket branches ────────────────────────────────────────────
     setPhaseStatus('bitbucket', 'active');
     const branchMap = {};
-    const { bbWorkspace, bbRepo, bbDefaultBranch = 'main' } = settings;
+    const { bbWorkspace, bbRepo, bbDefaultBranch = 'master' } = settings;
 
     for (const story of approvedStories) {
       const jiraKey = jiraMap[story.id]?.key || story.id.toUpperCase();
       const branchName = getBitbucketBranchName(jiraKey, story.title);
       const result = await createBitbucketBranch(bbWorkspace, bbRepo, branchName, bbDefaultBranch);
-      branchMap[story.id] = { ...result, name: branchName };
+      branchMap[story.id] = { ...result, name: branchName, jiraKey };
       setBranchResults(prev => ({ ...prev, [story.id]: { ...result, name: branchName } }));
       if (!result.success) errs.push(`Bitbucket Branch "${branchName}" – ${result.error}`);
     }
@@ -226,31 +227,77 @@ export const Handoff = () => {
     setErrors([...errs]);
     setPhaseStatus('bitbucket', Object.values(branchMap).some(b => !b.success) ? 'error' : 'done');
 
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 400));
 
-    // ── Step 3: PR Checklists + Pull Requests ─────────────────────────────────
+    // ── Step 3: Repo Analysis + Code Generation ────────────────────────────
+    setPhaseStatus('codeGen', 'active');
+    const codeMap = {};
+    let repoCtx = null;
+    try {
+      const allLabels = [...new Set(approvedStories.flatMap(s => s.labels || []))];
+      const allTitles = approvedStories.map(s => s.title).join(' ');
+      repoCtx = await fetchRepoContext(bbWorkspace, bbRepo, bbDefaultBranch, allLabels, allTitles);
+
+      for (const story of approvedStories) {
+        try {
+          const result = await generateCode(story, repoCtx);
+          codeMap[story.id] = result;
+          setCodeResults(prev => ({ ...prev, [story.id]: result }));
+        } catch (e) {
+          errs.push(`Code Generation for "${story.title}" – ${e.message}`);
+        }
+      }
+      setPhaseStatus('codeGen', 'done');
+    } catch (err) {
+      errs.push(`Repo Analysis – ${err.message}`);
+      setPhaseStatus('codeGen', 'error');
+    }
+    setErrors([...errs]);
+
+    await new Promise(r => setTimeout(r, 400));
+
+    // ── Step 4: Commit Code to Branches ──────────────────────────────────────
+    setPhaseStatus('commit', 'active');
+    const commitMap = {};
+    for (const story of approvedStories) {
+      const branch = branchMap[story.id];
+      const code = codeMap[story.id];
+      if (branch?.success && code?.files?.length > 0) {
+        const commitResult = await commitFilesToBitbucket(bbWorkspace, bbRepo, branch.name, code.files);
+        commitMap[story.id] = commitResult;
+        if (!commitResult.success) {
+          errs.push(`Bitbucket Commit on "${branch.name}" – ${commitResult.error}`);
+        }
+      } else {
+        commitMap[story.id] = { success: false, error: 'No code generated to commit' };
+      }
+    }
+    setErrors([...errs]);
+    setPhaseStatus('commit', Object.values(commitMap).some(c => !c.success) ? 'error' : 'done');
+
+    await new Promise(r => setTimeout(r, 400));
+
+    // ── Step 5: PR Checklists + Pull Requests ─────────────────────────────────
     setPhaseStatus('prchecklist', 'active');
     const prMap = {};
 
     for (const story of approvedStories) {
       const branch = branchMap[story.id];
-      const jiraKey = jiraMap[story.id]?.key;
+      const commit = commitMap[story.id];
+      const jiraKey = branch?.jiraKey;
+      
       if (!branch?.success) {
         prMap[story.id] = { success: false, error: 'Branch was not created — skipping PR' };
         continue;
       }
-      if (!bbWorkspace || !bbRepo) {
-        prMap[story.id] = { success: false, error: 'Bitbucket workspace/repo not configured' };
-        continue;
-      }
-
+      
+      // Even if commit failed, we might try the PR, but it'll likely show 'no changes'
+      // We'll proceed so the user sees the error in Bitbucket or our UI
       let checklist = '';
       try {
         const clRes = await generatePRChecklist(story);
         checklist = clRes.checklist || '';
-      } catch {
-        // non-fatal – PR will be created without checklist
-      }
+      } catch {}
 
       const prResult = await createBitbucketPR(
         bbWorkspace, bbRepo, branch.name, story.title, checklist, jiraKey, bbDefaultBranch
@@ -261,47 +308,20 @@ export const Handoff = () => {
     }
 
     setErrors([...errs]);
-    const anyPrFailed = Object.values(prMap).some(p => !p.success);
-    setPhaseStatus('prchecklist', anyPrFailed ? 'error' : 'done');
+    setPhaseStatus('prchecklist', Object.values(prMap).some(p => !p.success) ? 'error' : 'done');
 
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 400));
 
-    // ── Step 4: Repo Analysis + Code Generation + Solutioning Doc ────────────
-    setPhaseStatus('codeGen', 'active');
+    // ── Step 6: Solutioning Doc & Confluence ───────────────────────────────────
+    setPhaseStatus('confluence', 'active');
     let solutioningHtml = null;
-    const codeMap = {};
-    let codeGenFailed = false;
-
     try {
-      const { bbWorkspace: ws, bbRepo: repo, bbDefaultBranch: branch = 'main' } = settings;
-
-      const allLabels = [...new Set(approvedStories.flatMap(s => s.labels || []))];
-      const allTitles = approvedStories.map(s => s.title).join(' ');
-      const repoCtx = await fetchRepoContext(ws, repo, branch, allLabels, allTitles);
-
-      for (const story of approvedStories) {
-        try {
-          const result = await generateCode(story, repoCtx);
-          codeMap[story.id] = result;
-          setCodeResults(prev => ({ ...prev, [story.id]: result }));
-        } catch {
-          // non-fatal — continue without code for this story
-        }
-      }
-
       const docRes = await generateSolutioningDoc(approvedStories, repoCtx, settings.projectName || 'Sprint');
       solutioningHtml = docRes.html || null;
-    } catch (err) {
-      codeGenFailed = true;
-      errs.push(`Code/Doc Generation – ${err.message || 'AI service error. Confluence will use fallback content.'}`);
-      setErrors([...errs]);
+    } catch (e) {
+      errs.push(`Solutioning Doc Generation – ${e.message}`);
     }
 
-    setPhaseStatus('codeGen', codeGenFailed ? 'error' : 'done');
-    await new Promise(r => setTimeout(r, 300));
-
-    // ── Step 5: Confluence ────────────────────────────────────────────────────
-    setPhaseStatus('confluence', 'active');
     const confResult = await createConfluencePage(settings.confluenceSpaceKey, 'Sprint Planning', approvedStories, solutioningHtml);
     setConfluenceResult(confResult);
     setConfluencePages([confResult]);
@@ -435,11 +455,11 @@ export const Handoff = () => {
         <SyncPhase label="Connecting to Atlassian toolchain" status={phaseStatuses.jira === 'waiting' ? 'waiting' : 'done'} />
         <SyncPhase label={`Creating Epic, ${approvedStories.length} stories, Dev & QA sub-tasks`} status={phaseStatuses.jira} />
         <SyncPhase label="Scaffolding Bitbucket branches" status={phaseStatuses.bitbucket} />
-        <SyncPhase label="Generating PR checklists & opening pull requests" status={phaseStatuses.prchecklist} />
-        <SyncPhase label="Analysing repo & generating code scaffolding + solutioning doc" status={phaseStatuses.codeGen} />
-        <SyncPhase label="Publishing detailed solutioning doc to Confluence" status={phaseStatuses.confluence} />
-        <SyncPhase label="Generating stakeholder summary email" status={phaseStatuses.email} />
-        <SyncPhase label="Sending notifications" status={phaseStatuses.notifications} />
+        <SyncPhase label="Analysing repo & generating code scaffolding" status={phaseStatuses.codeGen} />
+        <SyncPhase label="Pushing generated code to feature branches" status={phaseStatuses.commit} />
+        <SyncPhase label="Opening pull requests with checklists" status={phaseStatuses.prchecklist} />
+        <SyncPhase label="Publishing detailed architecture docs to Confluence" status={phaseStatuses.confluence} />
+        <SyncPhase label="Generating summary email & notifying stakeholders" status={phaseStatuses.email} />
       </div>
 
       {errors.length > 0 && (

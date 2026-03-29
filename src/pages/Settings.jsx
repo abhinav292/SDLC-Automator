@@ -42,11 +42,14 @@ export const Settings = () => {
     bbWorkspace: settings.bbWorkspace || '',
     bbRepo: settings.bbRepo || '',
     confluenceSpaceKey: settings.confluenceSpaceKey || '',
-    bbDefaultBranch: settings.bbDefaultBranch || 'main',
+    bbDefaultBranch: settings.bbDefaultBranch || 'master',
     slackWebhookUrl: settings.slackWebhookUrl || '',
     projectName: settings.projectName || ''
   });
   const [saved, setSaved] = useState(false);
+  const [atlassianToken, setAtlassianToken] = useState('');
+  const [bitbucketToken, setBitbucketToken] = useState('');
+  const [aiToken, setAiToken] = useState('');
 
   useEffect(() => {
     testConnections();
@@ -116,8 +119,28 @@ export const Settings = () => {
     setVelocityLoading(false);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     saveSettings(form);
+    
+    if (atlassianToken || bitbucketToken || aiToken) {
+      try {
+        await fetch('/api/backend/update-env', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            atlassianToken: atlassianToken || undefined, 
+            bitbucketToken: bitbucketToken || undefined,
+            aiToken: aiToken || undefined
+          })
+        });
+        setAtlassianToken('');
+        setBitbucketToken('');
+        setAiToken('');
+      } catch (err) {
+        console.error('Failed to update tokens:', err);
+      }
+    }
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -153,7 +176,19 @@ export const Settings = () => {
 
         <SettingRow label="Domain" value={DOMAIN} hint="Set via ATLASSIAN_DOMAIN environment variable" />
         <SettingRow label="Email" value={EMAIL} hint="Set via ATLASSIAN_EMAIL environment variable" />
-        <SettingRow label="API Token" value={DOMAIN ? '••••••••••••' : 'Not configured'} hint="Set via ATLASSIAN_API_TOKEN environment variable" />
+        <div className="flex justify-between items-center py-3 border-b border-subtle">
+          <div className="flex-1 pr-6">
+            <span className="text-sm font-medium">API Token</span>
+            <p className="text-xs text-tertiary mt-0.5">Used for both Jira and Confluence by default.</p>
+          </div>
+          <input
+            type="password"
+            className="input-field max-w-xs flex-1 font-mono text-sm"
+            placeholder={DOMAIN ? "•••••••••••• (Type to overwrite)" : "Paste your Atlassian token here"}
+            value={atlassianToken}
+            onChange={(e) => setAtlassianToken(e.target.value)}
+          />
+        </div>
         <SettingRow label="Jira Project Key" value={JIRA_KEY} hint="Set via JIRA_PROJECT_KEY environment variable" />
       </div>
 
@@ -295,6 +330,28 @@ export const Settings = () => {
         )}
       </div>
 
+      {/* AI Configuration */}
+      <div className="card mb-6 border-indigo-500/20 bg-indigo-900/5">
+        <div className="flex items-center gap-3 mb-4">
+          <Loader2 size={20} style={{ color: 'var(--color-primary)' }} />
+          <h2 className="text-lg font-semibold">AI Configuration</h2>
+        </div>
+        <p className="text-sm text-secondary mb-4">
+          Configure the API keys used for story extraction and code scaffolding.
+        </p>
+        <div className="mb-4">
+          <label className="text-sm font-medium block mb-1">OpenRouter / OpenAI API Key</label>
+          <input
+            type="password"
+            className="input-field font-mono text-sm"
+            placeholder="•••••••••••• (Type to overwrite)"
+            value={aiToken}
+            onChange={(e) => setAiToken(e.target.value)}
+          />
+          <p className="text-xs text-tertiary mt-2">Required for the AI to analyze your repo and generate code. Supports OpenRouter (preferred) or OpenAI.</p>
+        </div>
+      </div>
+
       {/* Bitbucket */}
       <div className="card mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -316,6 +373,18 @@ export const Settings = () => {
             <p className="text-xs text-tertiary mt-1">Ensure BITBUCKET_API_TOKEN is set in Replit Secrets with your Bitbucket App Password or token.</p>
           </div>
         )}
+
+        <div className="mb-4">
+          <label className="text-sm font-medium block mb-1">Bitbucket API Token</label>
+          <input
+            type="password"
+            className="input-field font-mono text-sm"
+            placeholder="•••••••••••• (Type to overwrite)"
+            value={bitbucketToken}
+            onChange={(e) => setBitbucketToken(e.target.value)}
+          />
+          <p className="text-xs text-tertiary mt-1">Leave blank to keep current token. Replaces BITBUCKET_API_TOKEN.</p>
+        </div>
 
         <div className="bitbucket-fields-grid">
           <div>
@@ -368,7 +437,7 @@ export const Settings = () => {
           <label className="text-sm font-medium block mb-1">Default Branch</label>
           <input
             className="input-field"
-            placeholder="main"
+            placeholder="master"
             value={form.bbDefaultBranch}
             onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))}
             style={{ maxWidth: 160 }}
