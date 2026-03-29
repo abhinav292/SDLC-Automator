@@ -26,6 +26,11 @@ export default defineConfig(({ mode }) => {
       port: 5000,
       allowedHosts: true,
       proxy: {
+        '/api/backend': {
+          target: 'http://localhost:3001',
+          changeOrigin: false,
+          rewrite: (path) => path.replace(/^\/api\/backend/, '')
+        },
         '/api/jira': {
           target: `https://${domain}/rest/api/3`,
           changeOrigin: true,

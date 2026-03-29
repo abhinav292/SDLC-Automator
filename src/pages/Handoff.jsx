@@ -27,7 +27,7 @@ const SyncPhase = ({ label, status }) => (
 
 export const Handoff = () => {
   const navigate = useNavigate();
-  const { stories, approvedStoryIds, settings, setJiraIssues, setBitbucketBranches, setConfluencePages, setPipelineStats } = useApp();
+  const { stories, approvedStoryIds, settings, setJiraIssues, setBitbucketBranches, setConfluencePages, setPipelineStats, completePipeline } = useApp();
   const [phase, setPhase] = useState('idle');
   const [jiraResults, setJiraResults] = useState({});
   const [branchResults, setBranchResults] = useState({});
@@ -117,6 +117,9 @@ export const Handoff = () => {
       pipelineRuns: (prev.pipelineRuns || 0) + 1,
       storiesPushed: (prev.storiesPushed || 0) + approvedStories.filter(s => jiraMap[s.id]?.success).length
     }));
+
+    // Persist pipeline completion to database
+    await completePipeline(jiraMap, confResult?.url || null).catch(() => {});
 
     setPhase('done');
   };
