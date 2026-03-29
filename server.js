@@ -61,6 +61,11 @@ const simpleHash = (str) => {
   return (h >>> 0).toString(36);
 };
 
+// ─── AI MODEL CONFIGURATION ───────────────────────────────────────────────────
+// Change this one constant to switch all AI calls across the app.
+// google/gemini-2.0-flash-001: ~$0.10/M input, ~$0.40/M output, 1M-token context window.
+const AI_MODEL = 'google/gemini-2.0-flash-001';
+
 // ─── SHARED AI CALL HELPER ────────────────────────────────────────────────────
 
 const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
@@ -181,7 +186,7 @@ TRANSCRIPT:
   // Helper: run a single extraction AI call for one chunk of text
   const runExtractionCall = async (chunk) => {
     const fullPrompt = prompt + chunk;
-    const data = await callAI('openai/gpt-4o-mini', [{ role: 'user', content: fullPrompt }], 0.3);
+    const data = await callAI(AI_MODEL, [{ role: 'user', content: fullPrompt }], 0.3);
     const rawContent = data.choices?.[0]?.message?.content || '';
     const finishReason = data.choices?.[0]?.finish_reason;
     console.log(`[extract] finish_reason=${finishReason} input_chars=${chunk.length} tokens=${JSON.stringify(data.usage)}`);
@@ -324,28 +329,7 @@ RAW TRANSCRIPT:
 ${rawTranscript.slice(0, 8000)}`;
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
-        'X-Title': 'SDLC Autopilot'
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-flash-1.5',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('Transcript cleanup error:', err);
-      return res.json({ cleaned: rawTranscript, fallback: true });
-    }
-
-    const data = await response.json();
+    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
     const cleaned = data.choices?.[0]?.message?.content?.trim() || rawTranscript;
     res.json({ cleaned, model: data.model, fallback: false });
   } catch (err) {
@@ -506,27 +490,7 @@ Each section should have 2-4 checkbox items relevant to this story.
 Return ONLY the markdown checklist. No preamble.`;
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
-        'X-Title': 'SDLC Autopilot'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      return res.status(500).json({ error: 'AI service error', detail: err });
-    }
-
-    const data = await response.json();
+    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
     const checklist = data.choices?.[0]?.message?.content?.trim() || '';
     res.json({ checklist });
   } catch (err) {
@@ -569,27 +533,7 @@ BODY:
 [email body]`;
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
-        'X-Title': 'SDLC Autopilot'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      return res.status(500).json({ error: 'AI service error', detail: err });
-    }
-
-    const data = await response.json();
+    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.3);
     const content = data.choices?.[0]?.message?.content?.trim() || '';
     const subjectMatch = content.match(/SUBJECT:\s*(.+)/i);
     const bodyMatch = content.match(/BODY:\s*([\s\S]+)/i);
@@ -690,8 +634,7 @@ Rules:
 Respond with ONLY a valid JSON object. No markdown wrapper, no explanation.`;
 
   try {
-    const data = await callAI('openai/gpt-4o-mini', [{ role: 'user', content: prompt }], 0.2);
-
+    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
 
     const content = data.choices?.[0]?.message?.content || '';
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -763,7 +706,7 @@ Start the document with: <h1>${projectName || 'Sprint'} – Technical Solutionin
 Respond with ONLY the HTML string. No markdown, no code fences, no explanation.`;
 
   try {
-    const data = await callAI('openai/gpt-4o-mini', [{ role: 'user', content: prompt }], 0.3);
+    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.3);
     const html = data.choices?.[0]?.message?.content?.trim() || '';
     res.json({ html });
   } catch (err) {
@@ -815,7 +758,7 @@ Rules:
 Respond with ONLY a valid JSON array. No markdown, no explanation.`;
 
   try {
-    const data = await callAI('openai/gpt-4o-mini', [{ role: 'user', content: prompt }], 0.2);
+    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
     const content = data.choices?.[0]?.message?.content || '';
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return res.status(500).json({ error: 'Could not parse AI response', raw: content });
