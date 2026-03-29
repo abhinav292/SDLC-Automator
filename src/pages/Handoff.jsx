@@ -110,11 +110,14 @@ export const Handoff = () => {
     const errs = [];
 
     // ── Pre-flight: warn about missing settings before any API calls ──────────
-    if (!settings.bbWorkspace || !settings.bbRepo) {
-      errs.push('Bitbucket – workspace or repository not set. Go to Settings → Bitbucket to configure them. Branch and PR creation will be skipped.');
+    if (!settings.bbWorkspace) {
+      errs.push('Bitbucket – workspace not set in Settings. Branch and PR creation will be attempted but will fail until configured.');
+    }
+    if (!settings.bbRepo) {
+      errs.push('Bitbucket – repository not set in Settings. Branch and PR creation will be attempted but will fail until configured.');
     }
     if (!settings.confluenceSpaceKey) {
-      errs.push('Confluence – no space key configured. Go to Settings → Confluence to set it. The doc will not be published.');
+      errs.push('Confluence – no space key configured in Settings. The Confluence page will not be published.');
     }
     setErrors([...errs]);
 
@@ -249,6 +252,7 @@ export const Handoff = () => {
     setPhaseStatus('codeGen', 'active');
     let solutioningHtml = null;
     const codeMap = {};
+    let codeGenFailed = false;
 
     try {
       const { bbWorkspace: ws, bbRepo: repo, bbDefaultBranch: branch = 'main' } = settings;
@@ -270,11 +274,12 @@ export const Handoff = () => {
       const docRes = await generateSolutioningDoc(approvedStories, repoCtx, settings.projectName || 'Sprint');
       solutioningHtml = docRes.html || null;
     } catch (err) {
+      codeGenFailed = true;
       errs.push(`Code/Doc Generation – ${err.message || 'AI service error. Confluence will use fallback content.'}`);
       setErrors([...errs]);
     }
 
-    setPhaseStatus('codeGen', 'done');
+    setPhaseStatus('codeGen', codeGenFailed ? 'error' : 'done');
     await new Promise(r => setTimeout(r, 300));
 
     // ── Step 5: Confluence ────────────────────────────────────────────────────
