@@ -14,7 +14,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // ─── AI EXTRACTION ────────────────────────────────────────────────────────────
 
 app.post('/extract', async (req, res) => {
-  const { text, fileNames = [] } = req.body;
+  const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'No text provided' });
 
   const prompt = `You are an expert TPM/PM AI assistant. Analyze the following meeting transcript(s) and extract well-structured Jira stories.
@@ -23,10 +23,14 @@ For each story you identify, output a JSON object with these exact fields:
 - id: string like "story-1", "story-2", etc.
 - title: concise story title (max 80 chars)
 - description: "As a [persona], I want to [action] so that [benefit]" format
-- acceptanceCriteria: array of 3-5 clear, testable acceptance criteria strings
+- acceptanceCriteria: array of 3-5 POSITIVE acceptance criteria — happy-path, expected behaviour when everything works correctly
+- negativeAcceptanceCriteria: array of 2-4 NEGATIVE acceptance criteria — error handling, invalid inputs, edge cases, access control, boundary conditions (e.g. "Given an unauthenticated user, When they access the endpoint, Then a 401 is returned")
 - storyPoints: estimated story points (fibonacci: 1, 2, 3, 5, 8, 13)
 - adjustedPoints: same as storyPoints initially
-- qaScenarios: array of 2-3 Gherkin scenario strings (Feature/Scenario/Given/When/Then)
+- priority: "High" | "Medium" | "Low" — based on business impact, user value, and risk
+- labels: array of 1-3 concise lowercase technical tags relevant to the story (e.g. ["api", "auth", "frontend", "database", "payments", "notifications"])
+- technicalNotes: 1-2 sentence string describing key implementation considerations, suggested approach, or important constraints the developer should know
+- qaScenarios: array of 2-3 complete Gherkin scenario strings (Feature/Scenario/Given/When/Then) covering the most critical positive and negative paths
 - riskFlags: array of objects {id, type ("warning"|"error"), text} for identified risks
 - solution: {options: [{id, name, description, pros (array), cons (array), complexity ("Low"|"Medium"|"High"), recommended (bool)}]} - include 1-2 technical solution options
 - dependencies: array of story ids this story depends on (can be empty [])
@@ -38,6 +42,7 @@ Rules:
 - Flag risks using words like: performance, security, scale, dependency, external API, migration, deadline, cost
 - Identify natural dependencies between stories
 - Make descriptions specific and actionable
+- Negative acceptance criteria must be testable and specific — not generic statements
 
 Respond with ONLY a valid JSON array of story objects. No markdown, no explanation, just the JSON array.
 
@@ -139,7 +144,7 @@ ${rawTranscript.slice(0, 8000)}`;
 
 // ─── PIPELINE RUNS ────────────────────────────────────────────────────────────
 
-app.get('/pipelines', async (req, res) => {
+app.get('/pipelines', async (_req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM pipeline_runs ORDER BY created_at DESC LIMIT 20'
@@ -265,9 +270,420 @@ app.post('/pipelines/:id/audit', async (req, res) => {
   }
 });
 
+// ─── PR CHECKLIST GENERATION ──────────────────────────────────────────────────
+
+app.post('/generate-pr-checklist', async (req, res) => {
+  const { story } = req.body;
+  if (!story) return res.status(400).json({ error: 'No story provided' });
+
+  const prompt = `You are an expert software engineer. Generate a concise PR review checklist for the following user story.
+
+Story: ${story.title}
+Description: ${story.description}
+Acceptance Criteria:
+${(story.acceptanceCriteria || []).map(ac => `- ${ac}`).join('\n')}
+Story Points: ${story.adjustedPoints}
+Risk Flags: ${(story.riskFlags || []).map(r => r.text).join(', ') || 'None'}
+
+Generate a PR review checklist in markdown format with these sections:
+## Code Quality
+## Test Coverage
+## Acceptance Criteria Verification
+## Security & Performance
+## Documentation
+
+Each section should have 2-4 checkbox items relevant to this story.
+Return ONLY the markdown checklist. No preamble.`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+        'X-Title': 'SDLC Autopilot'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        max_tokens: 800
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: 'AI service error', detail: err });
+    }
+
+    const data = await response.json();
+    const checklist = data.choices?.[0]?.message?.content?.trim() || '';
+    res.json({ checklist });
+  } catch (err) {
+    console.error('PR checklist error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── STAKEHOLDER EMAIL GENERATION ─────────────────────────────────────────────
+
+app.post('/generate-stakeholder-email', async (req, res) => {
+  const { stories, projectName } = req.body;
+  if (!stories || !stories.length) return res.status(400).json({ error: 'No stories provided' });
+
+  const totalPoints = stories.reduce((sum, s) => sum + (s.adjustedPoints || 0), 0);
+  const riskyStories = stories.filter(s => (s.riskFlags || []).length > 0);
+
+  const prompt = `You are a TPM writing a stakeholder sprint update email. Write a clear, non-technical plain-English summary.
+
+Project: ${projectName || 'Sprint Planning'}
+Total Stories: ${stories.length}
+Total Story Points: ${totalPoints}
+
+Stories:
+${stories.map(s => `- ${s.title} (${s.adjustedPoints} pts)${(s.riskFlags || []).length > 0 ? ' ⚠️' : ''}`).join('\n')}
+
+Risks Identified:
+${riskyStories.length > 0 ? riskyStories.flatMap(s => s.riskFlags || []).map(r => `- ${r.text}`).join('\n') : 'None'}
+
+Write a professional stakeholder email with:
+1. Subject line
+2. Brief overview (2-3 sentences)
+3. What's being built (bulleted feature list, business language)
+4. Risks & mitigation if any
+5. Next steps and who to contact
+
+Format exactly as:
+SUBJECT: [subject line]
+BODY:
+[email body]`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+        'X-Title': 'SDLC Autopilot'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 1000
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: 'AI service error', detail: err });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim() || '';
+    const subjectMatch = content.match(/SUBJECT:\s*(.+)/i);
+    const bodyMatch = content.match(/BODY:\s*([\s\S]+)/i);
+
+    res.json({
+      subject: subjectMatch?.[1]?.trim() || `Sprint Update: ${stories.length} stories, ${totalPoints} pts`,
+      body: bodyMatch?.[1]?.trim() || content
+    });
+  } catch (err) {
+    console.error('Email generation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── SLACK / TEAMS WEBHOOK NOTIFICATION ───────────────────────────────────────
+
+app.post('/notify-slack', async (req, res) => {
+  const { webhookUrl, message } = req.body;
+  if (!webhookUrl || !message) return res.status(400).json({ error: 'webhookUrl and message required' });
+
+  const allowed = [
+    'https://hooks.slack.com/',
+    'https://outlook.office.com/webhook/',
+    'https://discord.com/api/webhooks/'
+  ];
+  if (!allowed.some(prefix => webhookUrl.startsWith(prefix))) {
+    return res.status(400).json({ error: 'Only Slack, Teams, and Discord webhooks are supported.' });
+  }
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message)
+    });
+    if (response.ok) {
+      res.json({ success: true });
+    } else {
+      const text = await response.text();
+      res.status(400).json({ success: false, error: text });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── CODE GENERATION ─────────────────────────────────────────────────────────
+
+app.post('/generate-code', async (req, res) => {
+  const { story, repoContext } = req.body;
+  if (!story) return res.status(400).json({ error: 'No story provided' });
+
+  const repoStructure = repoContext?.structure || 'Repository structure not available.';
+  const existingFiles = (repoContext?.files || [])
+    .map(f => `### ${f.path}\n\`\`\`${f.language || ''}\n${f.content.slice(0, 1500)}\n\`\`\``)
+    .join('\n\n');
+
+  const prompt = `You are a senior software engineer. Generate production-ready code scaffolding for the following user story, following the exact patterns and conventions of the existing codebase.
+
+Story: ${story.title}
+Description: ${story.description}
+Technical Notes: ${story.technicalNotes || 'None'}
+Labels: ${(story.labels || []).join(', ') || 'None'}
+Priority: ${story.priority || 'Medium'}
+
+Positive Acceptance Criteria:
+${(story.acceptanceCriteria || []).map((ac, i) => `${i + 1}. ${ac}`).join('\n') || 'None'}
+
+Negative Acceptance Criteria:
+${(story.negativeAcceptanceCriteria || []).map((ac, i) => `${i + 1}. ${ac}`).join('\n') || 'None'}
+
+Existing Repository Structure:
+${repoStructure}
+
+Key Existing Files (for style and convention reference):
+${existingFiles || 'No existing files available — infer a sensible structure.'}
+
+Generate code files following the existing codebase conventions. Respond with a JSON object:
+{
+  "summary": "1-2 sentence description of what was generated",
+  "files": [
+    {
+      "path": "relative/path/to/file.js",
+      "language": "javascript",
+      "purpose": "One sentence role of this file",
+      "content": "full file content with TODO comments for business logic"
+    }
+  ]
+}
+
+Rules:
+- Match naming conventions, import styles, folder structure from the existing files exactly
+- Generate 2-5 files (service, controller/handler, model/schema, test stub as applicable)
+- Use TODO comments where business logic must be implemented
+- Include proper error handling patterns matching existing code
+- Generate unit test stubs if test files exist in the repo
+
+Respond with ONLY a valid JSON object. No markdown wrapper, no explanation.`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+        'X-Title': 'SDLC Autopilot'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        max_tokens: 3500
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: 'AI service error', detail: err });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(500).json({ error: 'Could not parse AI response', raw: content });
+
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch (err) {
+    console.error('Code generation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── SOLUTIONING DOCUMENT GENERATION ─────────────────────────────────────────
+
+app.post('/generate-solutioning-doc', async (req, res) => {
+  const { stories, repoContext, projectName } = req.body;
+  if (!stories?.length) return res.status(400).json({ error: 'No stories provided' });
+
+  const repoStructure = repoContext?.structure || 'Repository structure not available.';
+  const existingFiles = (repoContext?.files || [])
+    .map(f => `### ${f.path}\n\`\`\`${f.language || ''}\n${f.content.slice(0, 1000)}\n\`\`\``)
+    .join('\n\n');
+
+  const storiesSummary = stories.map(s => `
+**${s.title}** (${s.adjustedPoints} pts · ${s.priority || 'Medium'} priority)
+Description: ${s.description}
+Technical Notes: ${s.technicalNotes || 'None'}
+Labels: ${(s.labels || []).join(', ') || 'None'}
+Positive AC: ${(s.acceptanceCriteria || []).join(' | ')}
+Negative AC: ${(s.negativeAcceptanceCriteria || []).join(' | ')}
+Risks: ${(s.riskFlags || []).map(r => r.text).join(', ') || 'None'}
+`).join('\n---\n');
+
+  const prompt = `You are a senior solutions architect. Generate a detailed, professional technical solutioning document for a development sprint.
+
+Project: ${projectName || 'Sprint'}
+Total Stories: ${stories.length}
+Total Story Points: ${stories.reduce((a, s) => a + (s.adjustedPoints || 0), 0)}
+
+Stories:
+${storiesSummary}
+
+Existing Repository Structure:
+${repoStructure}
+
+Key Existing Files:
+${existingFiles || 'Not available — base recommendations on the story context.'}
+
+Write a comprehensive solutioning document using clean Confluence-compatible HTML. Include ALL of these sections:
+
+1. <h2>Executive Summary</h2> — sprint goals, scope, total effort
+2. <h2>Current Architecture</h2> — describe what the existing codebase does based on the files, tech stack detected
+3. <h2>Per-Story Technical Design</h2> — for each story:
+   - Proposed new files / modifications to existing files
+   - API contracts (method, path, request body, response)
+   - Data model changes
+   - Component/module interactions
+   - Security considerations specific to this story
+   - Performance notes
+4. <h2>Cross-Story Integration Points</h2> — shared services, shared data, execution order
+5. <h2>Implementation Roadmap</h2> — suggested order to implement stories with rationale
+6. <h2>Risk Register</h2> — HTML table with: Risk | Likelihood | Impact | Mitigation
+7. <h2>Testing Strategy</h2> — unit, integration, E2E approach per story
+
+Use: h1, h2, h3, p, ul, li, ol, table, thead, tbody, tr, th, td, code, pre, strong, em.
+Do NOT use Confluence macros or custom XML. Keep it clean semantic HTML.
+Start the document with: <h1>${projectName || 'Sprint'} – Technical Solutioning Document</h1>
+
+Respond with ONLY the HTML string. No markdown, no code fences, no explanation.`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+        'X-Title': 'SDLC Autopilot'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 4000
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: 'AI service error', detail: err });
+    }
+
+    const data = await response.json();
+    const html = data.choices?.[0]?.message?.content?.trim() || '';
+    res.json({ html });
+  } catch (err) {
+    console.error('Solutioning doc error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── QA TEST CASE GENERATION ─────────────────────────────────────────────────
+
+app.post('/generate-qa-tasks', async (req, res) => {
+  const { story } = req.body;
+  if (!story) return res.status(400).json({ error: 'No story provided' });
+
+  const acPositive = (story.acceptanceCriteria || []).map((ac, i) => `${i + 1}. ${ac}`).join('\n');
+  const acNegative = (story.negativeAcceptanceCriteria || []).map((ac, i) => `${i + 1}. ${ac}`).join('\n');
+
+  const prompt = `You are a senior QA engineer. Generate comprehensive, structured test cases for the following user story.
+
+Story: ${story.title}
+Description: ${story.description}
+
+Positive Acceptance Criteria:
+${acPositive || 'None provided'}
+
+Negative Acceptance Criteria:
+${acNegative || 'None provided'}
+
+Risk Flags: ${(story.riskFlags || []).map(r => r.text).join(', ') || 'None'}
+Story Points: ${story.adjustedPoints || story.storyPoints || 3}
+
+Generate test cases as a JSON array. Each test case must have:
+- id: "TC-001", "TC-002", etc.
+- title: short, action-oriented test case title
+- type: "Positive" | "Negative" | "Edge Case" | "Performance" | "Security"
+- priority: "Critical" | "High" | "Medium" | "Low"
+- preconditions: string describing setup state (e.g. "User is logged in and has admin role")
+- steps: array of numbered step strings (e.g. ["Navigate to the settings page", "Click on 'Save' button"])
+- expectedResult: string describing the exact expected outcome
+- relatedAC: index of the acceptance criterion this covers (1-based), or null
+
+Rules:
+- Generate test cases for EVERY positive and negative acceptance criterion
+- Add edge cases for boundary values, empty inputs, special characters where relevant
+- Add security test cases if story involves auth, permissions, or user data
+- Priority "Critical" = core happy path; "High" = main negative paths; "Medium" = edge cases
+- Minimum 4 test cases, maximum 12
+
+Respond with ONLY a valid JSON array. No markdown, no explanation.`;
+
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+        'X-Title': 'SDLC Autopilot'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.2,
+        max_tokens: 2500
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: 'AI service error', detail: err });
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return res.status(500).json({ error: 'Could not parse AI response', raw: content });
+
+    const testCases = JSON.parse(jsonMatch[0]);
+    res.json({ testCases });
+  } catch (err) {
+    console.error('QA task generation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── HEALTH ───────────────────────────────────────────────────────────────────
 
-app.get('/health', async (req, res) => {
+app.get('/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
     res.json({ status: 'ok', db: 'connected' });

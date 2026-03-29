@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Settings as SettingsIcon, CheckCircle, AlertTriangle, Loader2,
-  ExternalLink, RefreshCw, GitBranch, FileText, CheckSquare
+  ExternalLink, RefreshCw, GitBranch, FileText, CheckSquare, Bell, TrendingUp
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { getJiraProjects, getJiraBaseUrl } from '../services/jiraService';
+import { getJiraProjects, getJiraBaseUrl, getJiraVelocity } from '../services/jiraService';
 import { getConfluenceSpaces, getConfluenceBaseUrl } from '../services/confluenceService';
 import { getBitbucketWorkspaces, getBitbucketRepos } from '../services/bitbucketService';
 import './Settings.css';
@@ -29,11 +29,15 @@ export const Settings = () => {
   const [confluenceSpaces, setConfluenceSpaces] = useState([]);
   const [bbWorkspaces, setBbWorkspaces] = useState([]);
   const [bbRepos, setBbRepos] = useState([]);
+  const [velocityData, setVelocityData] = useState(null);
+  const [velocityLoading, setVelocityLoading] = useState(false);
   const [form, setForm] = useState({
     bbWorkspace: settings.bbWorkspace || '',
     bbRepo: settings.bbRepo || '',
     confluenceSpaceKey: settings.confluenceSpaceKey || '',
-    bbDefaultBranch: settings.bbDefaultBranch || 'main'
+    bbDefaultBranch: settings.bbDefaultBranch || 'main',
+    slackWebhookUrl: settings.slackWebhookUrl || '',
+    projectName: settings.projectName || ''
   });
   const [saved, setSaved] = useState(false);
 
@@ -77,6 +81,13 @@ export const Settings = () => {
   const loadBbRepos = async (workspace) => {
     const repos = await getBitbucketRepos(workspace);
     setBbRepos(repos);
+  };
+
+  const loadVelocity = async () => {
+    setVelocityLoading(true);
+    const data = await getJiraVelocity(JIRA_KEY, 30);
+    setVelocityData(data);
+    setVelocityLoading(false);
   };
 
   const handleSave = () => {
@@ -276,6 +287,108 @@ export const Settings = () => {
         <p className="text-xs text-tertiary mt-3">
           Branches will be created as <span className="font-mono text-primary">feature/[JIRAKEY]-[story-title]</span>
         </p>
+      </div>
+
+      {/* Notifications */}
+      <div className="card mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <Bell size={20} style={{ color: '#fb923c' }} />
+          <h2 className="text-lg font-semibold">Notifications</h2>
+        </div>
+
+        <div className="mb-4">
+          <label className="text-sm font-medium block mb-1">Project Name</label>
+          <input
+            className="input-field"
+            placeholder="e.g. Payments Platform Q2"
+            value={form.projectName}
+            onChange={e => setForm(f => ({ ...f, projectName: e.target.value }))}
+          />
+          <p className="text-xs text-tertiary mt-1">Used in the stakeholder email subject line and Confluence page title.</p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium block mb-1">Slack / Teams Webhook URL</label>
+          <input
+            className="input-field"
+            placeholder="https://hooks.slack.com/services/..."
+            value={form.slackWebhookUrl}
+            onChange={e => setForm(f => ({ ...f, slackWebhookUrl: e.target.value }))}
+          />
+          <p className="text-xs text-tertiary mt-1">
+            Paste an incoming webhook URL to receive a Slack or Teams notification when a pipeline completes.
+            Supports Slack (<code>hooks.slack.com</code>), Teams (<code>outlook.office.com</code>), and Discord webhooks.
+          </p>
+          {form.slackWebhookUrl && (
+            <div className="flex items-center gap-1 mt-2 text-xs" style={{ color: 'var(--color-success)' }}>
+              <CheckCircle size={11} /> Webhook configured – notifications will be sent on pipeline completion
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Story Point Calibration */}
+      <div className="card mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <TrendingUp size={20} style={{ color: '#34d399' }} />
+            <h2 className="text-lg font-semibold">Story Point Calibration</h2>
+          </div>
+          <button
+            className="btn btn-secondary text-xs py-1.5 gap-1"
+            onClick={loadVelocity}
+            disabled={velocityLoading || jiraStatus !== 'ok'}
+          >
+            {velocityLoading
+              ? <><Loader2 size={13} className="animate-spin" /> Fetching...</>
+              : <><RefreshCw size={13} /> Fetch Velocity</>}
+          </button>
+        </div>
+
+        <p className="text-sm text-secondary mb-4">
+          Fetch your team's historical Jira velocity to calibrate AI story point estimates.
+          The system queries recently completed stories in project <span className="font-mono text-primary">{JIRA_KEY}</span>.
+        </p>
+
+        {jiraStatus !== 'ok' && (
+          <p className="text-xs text-warning">Connect Jira first to fetch velocity data.</p>
+        )}
+
+        {velocityData && (
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+            <div className="p-3 bg-root border border-subtle rounded-lg text-center">
+              <div className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>
+                {velocityData.average ?? '—'}
+              </div>
+              <div className="text-xs text-tertiary mt-1">Avg Story Points</div>
+            </div>
+            <div className="p-3 bg-root border border-subtle rounded-lg text-center">
+              <div className="text-2xl font-bold" style={{ color: 'var(--color-success)' }}>
+                {velocityData.count}
+              </div>
+              <div className="text-xs text-tertiary mt-1">Stories with Points</div>
+            </div>
+            <div className="p-3 bg-root border border-subtle rounded-lg text-center">
+              <div className="text-2xl font-bold" style={{ color: 'var(--color-warning)' }}>
+                {velocityData.total}
+              </div>
+              <div className="text-xs text-tertiary mt-1">Done Stories (total)</div>
+            </div>
+          </div>
+        )}
+
+        {velocityData && velocityData.average === null && (
+          <p className="text-xs text-tertiary mt-2">
+            No story point data found on completed issues. Ensure your Jira project uses the Story Points field (customfield_10016).
+          </p>
+        )}
+
+        {velocityData && velocityData.average !== null && (
+          <p className="text-xs text-tertiary mt-3">
+            AI estimates will use <strong>{velocityData.average} pts</strong> as the team baseline when calibrating new stories.
+            Extraction prompts are automatically informed by this value.
+          </p>
+        )}
       </div>
 
       <div className="flex justify-end">

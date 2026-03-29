@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CheckCircle, AlertTriangle, Edit3, Save, Trash2, GitMerge,
-  FileText, X, TestTube, ThumbsUp, ThumbsDown, CheckSquare
+  FileText, X, TestTube, ThumbsUp, ThumbsDown, CheckSquare, Download
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { mockStories } from '../mocks';
@@ -83,6 +83,18 @@ export const Review = () => {
   };
 
   const cancelEdit = () => { setEditingId(null); setEditForm(null); };
+
+  const downloadFeatureFile = (story) => {
+    const slug = story.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40);
+    const featureContent = `Feature: ${story.title}\n  ${story.description}\n\n${story.qaScenarios.join('\n\n')}`;
+    const blob = new Blob([featureContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${slug}.feature`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handlePushToJira = () => {
     if (approvedCount === 0) {
@@ -341,10 +353,19 @@ export const Review = () => {
 
             {viewMode === 'qa' && selectedStory && (
               <div className="solution-content scrollable-y absolute inset-0 pr-2 animate-fade-in">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                  <TestTube style={{ color: 'var(--color-secondary)' }} size={20} />
-                  QA Scenarios – {selectedStory.title}
-                </h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold flex items-center gap-2">
+                    <TestTube style={{ color: 'var(--color-secondary)' }} size={20} />
+                    QA Scenarios – {selectedStory.title}
+                  </h2>
+                  <button
+                    className="btn btn-secondary text-xs py-1.5 px-3 gap-1 flex-shrink-0"
+                    onClick={() => downloadFeatureFile(selectedStory)}
+                    title="Download Gherkin .feature file"
+                  >
+                    <Download size={13} /> .feature file
+                  </button>
+                </div>
                 <div className="bg-root border border-subtle rounded-lg p-5 font-mono text-sm text-secondary whitespace-pre-wrap leading-relaxed">
                   {selectedStory.qaScenarios.join('\n\n')}
                 </div>

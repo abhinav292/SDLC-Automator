@@ -39,3 +39,27 @@ export const cleanTranscript = (rawTranscript) =>
 
 // Health
 export const checkBackendHealth = () => request('GET', '/health');
+
+// PR Checklist
+export const generatePRChecklist = (story) =>
+  request('POST', '/generate-pr-checklist', { story });
+
+// Stakeholder Email
+export const generateStakeholderEmail = (stories, projectName) =>
+  request('POST', '/generate-stakeholder-email', { stories, projectName });
+
+// Slack / Teams notification
+export const notifySlack = (webhookUrl, message) =>
+  request('POST', '/notify-slack', { webhookUrl, message });
+
+// QA Test Case Generation
+export const generateQATasks = (story) =>
+  request('POST', '/generate-qa-tasks', { story });
+
+// Code Generation from Jira story + repo context
+export const generateCode = (story, repoContext) =>
+  request('POST', '/generate-code', { story, repoContext });
+
+// Solutioning document generation from all stories + repo context
+export const generateSolutioningDoc = (stories, repoContext, projectName) =>
+  request('POST', '/generate-solutioning-doc', { stories, repoContext, projectName });
