@@ -13,6 +13,26 @@ const jiraPost = async (path, body) => {
   return { ok: res.ok, status: res.status, data };
 };
 
+// ─── PROJECT TYPE DETECTION ────────────────────────────────────────────────────
+// Cached per-session so we only call once per pipeline run.
+// next-gen (team-managed) projects: use `parent` for epic linking, no customfield_10016
+// classic (company-managed) projects: use customfield_10014 + customfield_10016
+let _projectTypeCache = null;
+
+export const getJiraProjectStyle = async () => {
+  if (_projectTypeCache !== null) return _projectTypeCache;
+  try {
+    const res = await fetch(`/api/jira/project/${PROJECT_KEY}`);
+    const data = await res.json();
+    _projectTypeCache = data.style === 'next-gen' ? 'next-gen' : 'classic';
+  } catch {
+    _projectTypeCache = 'classic';
+  }
+  return _projectTypeCache;
+};
+
+export const resetJiraProjectStyleCache = () => { _projectTypeCache = null; };
+
 // ─── EPIC ──────────────────────────────────────────────────────────────────────
 
 export const createJiraEpic = async (epicName) => {
@@ -102,24 +122,31 @@ const parseJiraError = (data) =>
   data.errorMessages?.join(', ') || JSON.stringify(data.errors || data).slice(0, 300);
 
 export const createJiraStory = async (story, epicKey = null) => {
+  const projectStyle = await getJiraProjectStyle();
+  const isNextGen = projectStyle === 'next-gen';
+
   const baseFields = {
     project: { key: PROJECT_KEY },
     summary: story.title,
     description: buildStoryADF(story),
-    issuetype: { name: 'Story' }
+    issuetype: { name: 'Story' },
+    // For next-gen projects, epic is linked via `parent` (not Epic Link custom field)
+    ...(isNextGen && epicKey ? { parent: { key: epicKey } } : {})
   };
 
-  // Build the field set progressively — try with all optional fields, then fall back one-by-one
+  // Build optional fields — omit next-gen-incompatible fields on the first attempt
   const optionalFields = {
     priority: { name: story.priority || 'Medium' },
-    customfield_10016: story.adjustedPoints || story.storyPoints || 3,
     ...(story.labels?.length > 0 ? { labels: story.labels } : {}),
-    ...(epicKey ? { customfield_10014: epicKey } : {})
+    // Story Points: skip for next-gen (customfield_10016 doesn't exist in team-managed projects)
+    ...(isNextGen ? {} : { customfield_10016: story.adjustedPoints || story.storyPoints || 3 }),
+    // Epic Link: skip for next-gen (uses `parent` on baseFields instead)
+    ...((!isNextGen && epicKey) ? { customfield_10014: epicKey } : {})
   };
 
   const warnings = [];
 
-  // Attempt 1: full field set
+  // Attempt 1: full field set (correct for the detected project type)
   try {
     const { ok, data } = await jiraPost('/api/jira/issue', { fields: { ...baseFields, ...optionalFields } });
     if (ok) return { success: true, key: data.key, id: data.id, url: `${getJiraBaseUrl()}/browse/${data.key}`, warnings };

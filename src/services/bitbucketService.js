@@ -1,11 +1,31 @@
+// Resolve a branch name to its HEAD commit SHA.
+// Bitbucket's branch creation API requires a real commit hash in target.hash,
+// not a branch name string.
+const resolveBranchCommitHash = async (workspace, repo, branchName) => {
+  try {
+    const res = await fetch(
+      `/api/bitbucket/repositories/${workspace}/${repo}/refs/branches/${encodeURIComponent(branchName)}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.target?.hash || null;
+  } catch {
+    return null;
+  }
+};
+
 export const createBitbucketBranch = async (workspace, repo, branchName, fromBranch = 'main') => {
   if (!workspace || !repo) {
     return { success: false, error: 'Bitbucket workspace and repository not configured. Please set them in Settings.' };
   }
 
+  // Resolve the source branch to its HEAD commit SHA (required by Bitbucket API)
+  const commitHash = await resolveBranchCommitHash(workspace, repo, fromBranch);
+  const targetHash = commitHash || fromBranch; // fall back to branch name if GET failed
+
   const body = {
     name: branchName,
-    target: { hash: fromBranch }
+    target: { hash: targetHash }
   };
 
   try {

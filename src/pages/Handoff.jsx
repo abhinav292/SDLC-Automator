@@ -5,7 +5,7 @@ import {
   AlertTriangle, ExternalLink, ArrowRight, Copy, Mail, GitPullRequest, X, Code2
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { createJiraEpic, createJiraStory, createJiraSubTask, createJiraQASubTask, linkJiraIssues, getJiraBaseUrl } from '../services/jiraService';
+import { createJiraEpic, createJiraStory, createJiraSubTask, createJiraQASubTask, linkJiraIssues, getJiraBaseUrl, resetJiraProjectStyleCache } from '../services/jiraService';
 import { createBitbucketBranch, createBitbucketPR, getBitbucketBranchName } from '../services/bitbucketService';
 import { createConfluencePage, getConfluenceBaseUrl } from '../services/confluenceService';
 import { generatePRChecklist, generateStakeholderEmail, notifySlack, generateQATasks, generateCode, generateSolutioningDoc } from '../services/apiService';
@@ -108,6 +108,9 @@ export const Handoff = () => {
   const runSync = async () => {
     setPhase('running');
     const errs = [];
+
+    // Reset per-run caches so fresh settings are always picked up
+    resetJiraProjectStyleCache();
 
     // ── Pre-flight: warn about missing settings before any API calls ──────────
     if (!settings.bbWorkspace) {

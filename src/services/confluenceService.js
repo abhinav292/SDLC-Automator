@@ -41,34 +41,62 @@ export const createConfluencePage = async (spaceKey, title, stories, solutioning
       ${fallbackStoriesHtml}
     `;
 
-  const body = {
-    type: 'page',
-    title: `SDLC Autopilot - ${title} - ${new Date().toLocaleDateString()}`,
-    space: { key: spaceKey },
-    body: {
-      storage: {
-        value: pageContent,
-        representation: 'storage'
-      }
-    }
-  };
+  // Build a title that is unique even on same-day re-runs.
+  // Format: "SDLC Autopilot - <title> - Mar 29, 2026, 3:45 PM"
+  const baseTitle = `SDLC Autopilot - ${title} - ${new Date().toLocaleString()}`;
 
-  try {
+  const attemptCreate = async (pageTitle) => {
+    const body = {
+      type: 'page',
+      title: pageTitle,
+      space: { key: spaceKey },
+      body: {
+        storage: {
+          value: pageContent,
+          representation: 'storage'
+        }
+      }
+    };
     const res = await fetch('/api/confluence/content', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Atlassian-Token': 'no-check' },
       body: JSON.stringify(body)
     });
     const data = await res.json();
-    if (res.ok) {
+    return { ok: res.ok, data };
+  };
+
+  try {
+    // Attempt 1: base title (should be unique thanks to time component)
+    const { ok, data } = await attemptCreate(baseTitle);
+    if (ok) {
       return {
         success: true,
         id: data.id,
         url: `${getConfluenceBaseUrl()}${data._links?.webui || `/spaces/${spaceKey}`}`
       };
-    } else {
-      return { success: false, error: data.message || JSON.stringify(data) };
     }
+
+    // If it's a title collision, retry with a numeric suffix
+    const isTitleCollision =
+      (data.message || '').toLowerCase().includes('title') ||
+      (data.message || '').toLowerCase().includes('already exists') ||
+      data.statusCode === 400;
+
+    if (isTitleCollision) {
+      for (let suffix = 2; suffix <= 5; suffix++) {
+        const { ok: ok2, data: data2 } = await attemptCreate(`${baseTitle} (${suffix})`);
+        if (ok2) {
+          return {
+            success: true,
+            id: data2.id,
+            url: `${getConfluenceBaseUrl()}${data2._links?.webui || `/spaces/${spaceKey}`}`
+          };
+        }
+      }
+    }
+
+    return { success: false, error: data.message || JSON.stringify(data) };
   } catch (err) {
     return { success: false, error: err.message };
   }
