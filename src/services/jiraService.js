@@ -23,10 +23,13 @@ export const getJiraProjectStyle = async () => {
   if (_projectTypeCache !== null) return _projectTypeCache;
   try {
     const res = await fetch(`/api/jira/project/${PROJECT_KEY}`);
+    // Only cache on success — transient failures fall back to 'classic' without
+    // poisoning the cache, so the next story attempt can retry the detection.
+    if (!res.ok) return 'classic';
     const data = await res.json();
     _projectTypeCache = data.style === 'next-gen' ? 'next-gen' : 'classic';
   } catch {
-    _projectTypeCache = 'classic';
+    return 'classic';
   }
   return _projectTypeCache;
 };

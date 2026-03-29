@@ -77,13 +77,12 @@ export const createConfluencePage = async (spaceKey, title, stories, solutioning
       };
     }
 
-    // If it's a title collision, retry with a numeric suffix
-    const isTitleCollision =
-      (data.message || '').toLowerCase().includes('title') ||
-      (data.message || '').toLowerCase().includes('already exists') ||
-      data.statusCode === 400;
+    // Only retry on explicit title-collision signatures — don't treat all 400s as collision
+    const msg = (data.message || data.title || '').toLowerCase();
+    const isTitleCollision = msg.includes('title') && (msg.includes('already exists') || msg.includes('exists'));
 
     if (isTitleCollision) {
+      let lastError = data.message || JSON.stringify(data);
       for (let suffix = 2; suffix <= 5; suffix++) {
         const { ok: ok2, data: data2 } = await attemptCreate(`${baseTitle} (${suffix})`);
         if (ok2) {
@@ -93,7 +92,10 @@ export const createConfluencePage = async (spaceKey, title, stories, solutioning
             url: `${getConfluenceBaseUrl()}${data2._links?.webui || `/spaces/${spaceKey}`}`
           };
         }
+        lastError = data2.message || JSON.stringify(data2);
       }
+      console.error('Confluence page creation failed after all suffix attempts:', lastError);
+      return { success: false, error: lastError };
     }
 
     return { success: false, error: data.message || JSON.stringify(data) };
