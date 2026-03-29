@@ -122,136 +122,46 @@ app.post('/extract', async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'No text provided' });
 
-  // Pre-process: strip filler, collapse whitespace, deduplicate sentences
-  const cleaned = cleanTranscriptForExtraction(text);
-
-  // In-memory cache check
-  const cacheKey = simpleHash(cleaned);
+  // Cache key is based on raw text so distinct inputs always get distinct results
+  const cacheKey = simpleHash(text);
   if (extractionCache.has(cacheKey)) {
     console.log(`[extract] Cache hit for key ${cacheKey}`);
     return res.json({ ...extractionCache.get(cacheKey), cached: true });
   }
 
-  const prompt = `You are a senior Technical Program Manager and product engineer with 10+ years of experience writing Jira stories for enterprise teams. Your job is to analyse a meeting transcript and extract every distinct feature, requirement, or decision into structured user stories suitable for direct import into Jira.
+  // Pre-process: strip filler, collapse whitespace, deduplicate sentences
+  const cleaned = cleanTranscriptForExtraction(text);
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT FORMAT — NON-NEGOTIABLE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Return ONLY a raw JSON array. No markdown code fences (\`\`\`). No explanatory text before or after. No "Here is the output:" preamble. The very first character of your response must be "[" and the very last must be "]".
+  const prompt = `You are a senior TPM extracting Jira user stories from a meeting transcript. Return ONLY a raw JSON array — first char "[", last char "]", no markdown fences, no preamble. Always return at least one story.
 
-Even if only one story is found, wrap it in an array: [{ ... }]
-If the transcript is extremely short or vague, infer a reasonable story from whatever context is present — do not return an empty array.
+SCHEMA (all fields required):
+- "id": "story-1", "story-2", … (sequential)
+- "title": action-oriented, max 80 chars
+- "description": "As a [persona], I want to [action] so that [benefit]"
+- "acceptanceCriteria": 3–5 plain-English positive criteria (testable, specific)
+- "negativeAcceptanceCriteria": 2–4 Given/When/Then failure/edge-case criteria (include auth + invalid-input cases)
+- "storyPoints": Fibonacci 1|2|3|5|8|13
+- "adjustedPoints": same as storyPoints initially
+- "priority": "High"|"Medium"|"Low" (High=blocks others/revenue/security)
+- "labels": 1–3 from: api|auth|frontend|backend|database|payments|notifications|reporting|search|infrastructure|security|performance|data-migration|third-party|mobile|testing
+- "technicalNotes": 1–3 developer-facing sentences (frameworks, patterns, constraints, API design)
+- "qaScenarios": 2–3 complete Gherkin strings: "Feature: X\\n\\n  Scenario: Y\\n    Given ...\\n    When ...\\n    Then ..."
+- "riskFlags": 0–4 objects {id:"r-1", type:"warning"|"error", text:"..."} — NEVER plain strings, [] if none
+- "solution": {"options":[{id,name,description,pros:[],cons:[],complexity:"Low"|"Medium"|"High",recommended:true|false}]} — exactly one recommended:true
+- "epic": short epic/feature-area name shared by related stories (e.g. "User Auth", "Payments")
+- "dependencies": [] or ["story-1", …]
+- "status": "pending"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REQUIRED FIELDS — every story object must contain ALL of these
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RULES:
+1. Extract EVERY distinct independently-deliverable feature — no artificial cap; complex transcripts may yield 10+ stories.
+2. Merge duplicate mentions into one story.
+3. Infer at least 1 story even from vague/short transcripts.
+4. riskFlags must always be objects {id,type,text} — never strings.
+5. qaScenarios must be complete Gherkin, not just titles.
+6. Flag High priority for: blocking work, security/auth, customer-facing revenue impact, urgent deadline.
+7. Risk keywords: performance, SLA, migration, third-party, GDPR, PII, cost, TBD, breaking change.
 
-"id"                    : string  — sequential identifier: "story-1", "story-2", … "story-N"
-"title"                 : string  — concise, action-oriented title (max 80 characters, no punctuation at end)
-"description"           : string  — strict format: "As a [specific persona], I want to [concrete action] so that [measurable benefit]"
-"acceptanceCriteria"    : array   — 3 to 5 strings, each a POSITIVE criterion (happy path / success case)
-                                    • Write in plain English, not Gherkin
-                                    • Must be testable and specific — e.g. "User receives a confirmation email within 60 seconds of registration"
-                                    • Bad example (too vague): "Feature works correctly"
-"negativeAcceptanceCriteria" : array — 2 to 4 strings, each a NEGATIVE criterion (failure, edge-case, or access-control scenario)
-                                    • MUST follow Given/When/Then format: "Given [precondition], When [action], Then [expected failure behaviour]"
-                                    • Must cover: at least one auth/permission case, at least one invalid-input case
-                                    • Example: "Given an unauthenticated user, When they call POST /api/orders, Then the API returns HTTP 401 Unauthorized with error code AUTH_REQUIRED"
-                                    • Bad example (too vague): "Invalid data is rejected"
-"storyPoints"           : number  — Fibonacci: 1 | 2 | 3 | 5 | 8 | 13 — estimate effort, not complexity alone
-"adjustedPoints"        : number  — start identical to storyPoints; team adjusts later
-"priority"              : string  — exactly one of: "High" | "Medium" | "Low"
-                                    • High = blocks other work, customer-facing, revenue impact
-                                    • Medium = important but not blocking
-                                    • Low = nice-to-have, internal tooling, cleanup
-"labels"                : array   — 1 to 3 lowercase strings from this set (pick closest matches):
-                                    "api" | "auth" | "frontend" | "backend" | "database" | "payments" | "notifications" | "reporting" | "search" | "infrastructure" | "security" | "performance" | "data-migration" | "third-party" | "mobile" | "testing"
-"technicalNotes"        : string  — 1 to 3 sentences written FOR THE DEVELOPER (not the PM). Include:
-                                    • Suggested implementation approach or key library/pattern to use
-                                    • Any important constraints, gotchas, or coupling with existing systems
-                                    • Data storage or API design hints if apparent from context
-                                    • Do NOT repeat acceptance criteria — add new engineering context
-"qaScenarios"           : array   — 2 to 3 COMPLETE Gherkin scenario strings. Each must be a self-contained multi-line string with this exact structure:
-                                    "Feature: <feature name>\\n\\n  Scenario: <scenario title>\\n    Given <precondition>\\n    When <action>\\n    Then <outcome>"
-                                    Cover: 1 happy-path scenario + 1 failure scenario minimum
-"riskFlags"             : array   — 0 to 4 risk objects. Each object MUST have exactly these three keys:
-                                    { "id": "r-1", "type": "warning" | "error", "text": "<concise risk description>" }
-                                    • "error" = blocker-level risk (security flaw, data loss risk, external dependency with no fallback)
-                                    • "warning" = notable concern (performance, scope creep, unclear requirement)
-                                    • Do NOT include strings — only objects with id/type/text
-                                    • If no meaningful risks exist, return []
-"solution"              : object  — { "options": [ <1 to 2 option objects> ] }
-                                    Each option: { "id": "opt-1", "name": "<approach name>", "description": "<2-3 sentence technical description>", "pros": ["<pro>", ...], "cons": ["<con>", ...], "complexity": "Low" | "Medium" | "High", "recommended": true | false }
-                                    Exactly one option must have recommended: true
-"epic"                  : string  — A short Epic name grouping this story (e.g. "User Authentication", "Payments & Billing", "Reporting Dashboard"). Stories that are part of the same feature area should share the same epic name. If the transcript has only one theme, all stories can share one epic name.
-"dependencies"          : array   — list of story id strings this story depends on (e.g. ["story-1"]). Use [] if none.
-"status"                : string  — always "pending"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXTRACTION RULES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Extract ALL distinct stories mentioned — do not artificially limit. A detailed transcript may contain 10 or more stories. Extract every independently-deliverable feature or requirement.
-2. If the transcript mentions the same feature multiple ways, merge them into one story — do not duplicate.
-3. If the transcript is vague, short, or ambiguous, still produce at least 1 story using whatever context is available. Infer a sensible persona, action, and benefit from the topic.
-4. Do NOT invent features not implied by the transcript.
-5. Identify which stories must be completed before others can start — populate "dependencies" accordingly.
-6. Flag as "High" priority any story that: blocks other stories, is described as urgent, is customer-facing with revenue impact, or involves security/auth.
-7. Risk detection keywords: performance, latency, SLA, scale, millions of records, external API, third-party, migration, deadline, breaking change, security, GDPR, PII, cost, budget, unclear, TBD, to be decided.
-8. Every riskFlag must be a JSON object {id, type, text} — never a plain string.
-9. qaScenarios must be complete Gherkin strings, not just scenario titles.
-10. technicalNotes must be developer-facing — mention frameworks, patterns, data models, API contracts, or coupling concerns.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EXAMPLE — one well-formed story object (for schema reference only)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{
-  "id": "story-1",
-  "title": "User registration with email verification",
-  "description": "As a new user, I want to register with my email and receive a verification link so that my account is confirmed and secure before first login.",
-  "acceptanceCriteria": [
-    "User can submit registration form with name, email, and password",
-    "System sends a verification email within 60 seconds of form submission",
-    "User can click the verification link to activate their account",
-    "Registration is rejected and error shown if email is already in use"
-  ],
-  "negativeAcceptanceCriteria": [
-    "Given a user submits a registration form with an already-registered email, When the form is submitted, Then the system returns HTTP 409 with error message 'Email already in use'",
-    "Given a user submits an expired verification link (>24 hours old), When they click the link, Then they are shown an error page with a 'Resend verification email' option",
-    "Given an unauthenticated request to POST /api/users, When the request body is missing the 'email' field, Then the API returns HTTP 400 with field-level validation errors"
-  ],
-  "storyPoints": 5,
-  "adjustedPoints": 5,
-  "priority": "High",
-  "labels": ["auth", "backend", "notifications"],
-  "technicalNotes": "Use bcrypt (cost factor 12) for password hashing. Verification tokens should be JWT with 24-hour expiry stored in Redis for revocation support. Email sending via SendGrid; wrap in a queue (BullMQ or SQS) to handle retries without blocking the HTTP response.",
-  "qaScenarios": [
-    "Feature: User Registration\\n\\n  Scenario: Successful registration and email verification\\n    Given a new user with a unique email address\\n    When they submit the registration form with valid name, email, and password\\n    Then they receive a 201 response\\n    And a verification email is delivered within 60 seconds\\n    And their account status is 'pending_verification'",
-    "Feature: User Registration\\n\\n  Scenario: Registration with duplicate email\\n    Given an existing user with email 'jane@example.com'\\n    When a new user attempts to register with 'jane@example.com'\\n    Then the system returns HTTP 409\\n    And the response body contains error code 'EMAIL_IN_USE'\\n    And no verification email is sent"
-  ],
-  "riskFlags": [
-    { "id": "r-1", "type": "warning", "text": "Email deliverability depends on SendGrid domain verification — ensure SPF/DKIM records are configured before go-live" },
-    { "id": "r-2", "type": "error", "text": "Password reset flow is not in scope for this story but shares the token infrastructure — coordinate with the auth team to avoid design conflicts" }
-  ],
-  "solution": {
-    "options": [
-      {
-        "id": "opt-1",
-        "name": "JWT tokens + Redis revocation store",
-        "description": "Generate a signed JWT as the verification token. Store the token ID in Redis with a 24-hour TTL so tokens can be invalidated server-side on use or expiry. Simple to implement with existing JWT libraries and provides instant revocation capability.",
-        "pros": ["Stateless verification reduces DB load", "Easy to revoke tokens via Redis delete", "JWT payload carries user context without extra DB lookup"],
-        "cons": ["Requires Redis infrastructure", "JWT size is larger than a random token"],
-        "complexity": "Medium",
-        "recommended": true
-      }
-    ]
-  },
-  "dependencies": [],
-  "status": "pending"
-}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TRANSCRIPT TO ANALYSE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRANSCRIPT:
 `;
 
   // Helper: run a single extraction AI call for one chunk of text
