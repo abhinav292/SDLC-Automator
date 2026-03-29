@@ -11,11 +11,126 @@ app.use(express.json({ limit: '10mb' }));
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// ─── TRANSCRIPT PRE-PROCESSING ────────────────────────────────────────────────
+
+const FILLER_PHRASES = /\b(um+|uh+|er+|like,?\s|you know,?\s|so,?\s|basically,?\s|right,?\s|okay so,?\s|i mean,?\s|sort of,?\s|kind of,?\s|actually,?\s|literally,?\s)\b/gi;
+
+const cleanTranscriptForExtraction = (raw) => {
+  let t = raw
+    .replace(FILLER_PHRASES, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  // Deduplicate consecutive repeated sentences (speech recognition artefacts)
+  const sentences = t.split(/(?<=[.!?])\s+/);
+  const deduped = sentences.filter((s, i) => i === 0 || s.trim() !== sentences[i - 1].trim());
+  return deduped.join(' ').replace(/[ \t]{2,}/g, ' ').trim();
+};
+
+// Chunk a long transcript into overlapping segments (by character count)
+const CHUNK_SIZE = 60000;   // chars per chunk (~15k tokens at ~4 chars/token)
+const CHUNK_OVERLAP = 2000; // overlap so context isn't lost at boundaries
+
+const chunkTranscript = (text) => {
+  if (text.length <= CHUNK_SIZE) return [text];
+  const chunks = [];
+  let offset = 0;
+  while (offset < text.length) {
+    chunks.push(text.slice(offset, offset + CHUNK_SIZE));
+    offset += CHUNK_SIZE - CHUNK_OVERLAP;
+  }
+  return chunks;
+};
+
+// Simple in-memory extraction cache (keyed by transcript hash, per session)
+const extractionCache = new Map();
+
+const simpleHash = (str) => {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = (h * 33) ^ str.charCodeAt(i);
+  return (h >>> 0).toString(36);
+};
+
+// ─── SHARED AI CALL HELPER ────────────────────────────────────────────────────
+
+const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
+      'X-Title': 'SDLC Autopilot'
+    },
+    body: JSON.stringify({ model, messages, temperature, ...extraBody })
+  });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 300)}`);
+  }
+  return response.json();
+};
+
+// Parse a JSON array of stories from AI response content (with fallback recovery)
+const parseStoriesFromContent = (rawContent) => {
+  const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+  // Attempt 1: direct JSON parse
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {}
+
+  // Attempt 2: greedy regex for first array
+  const m = content.match(/\[[\s\S]*\]/);
+  if (m) {
+    try {
+      const parsed = JSON.parse(m[0]);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch {}
+  }
+
+  // Attempt 3: balanced-brace recovery (handles mid-JSON truncation)
+  const arrayStart = content.indexOf('[');
+  if (arrayStart !== -1) {
+    const partial = content.slice(arrayStart);
+    const recovered = [];
+    let depth = 0, start = -1;
+    for (let i = 0; i < partial.length; i++) {
+      if (partial[i] === '{') { if (depth === 0) start = i; depth++; }
+      else if (partial[i] === '}') {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          try { recovered.push(JSON.parse(partial.slice(start, i + 1))); } catch {}
+          start = -1;
+        }
+      }
+    }
+    if (recovered.length > 0) {
+      console.warn(`[extract] Recovered ${recovered.length} story object(s) via brace-balancing.`);
+      return recovered;
+    }
+  }
+
+  return null;
+};
+
 // ─── AI EXTRACTION ────────────────────────────────────────────────────────────
 
 app.post('/extract', async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'No text provided' });
+
+  // Pre-process: strip filler, collapse whitespace, deduplicate sentences
+  const cleaned = cleanTranscriptForExtraction(text);
+
+  // In-memory cache check
+  const cacheKey = simpleHash(cleaned);
+  if (extractionCache.has(cacheKey)) {
+    console.log(`[extract] Cache hit for key ${cacheKey}`);
+    return res.json({ ...extractionCache.get(cacheKey), cached: true });
+  }
 
   const prompt = `You are a senior Technical Program Manager and product engineer with 10+ years of experience writing Jira stories for enterprise teams. Your job is to analyse a meeting transcript and extract every distinct feature, requirement, or decision into structured user stories suitable for direct import into Jira.
 
@@ -68,13 +183,14 @@ REQUIRED FIELDS — every story object must contain ALL of these
 "solution"              : object  — { "options": [ <1 to 2 option objects> ] }
                                     Each option: { "id": "opt-1", "name": "<approach name>", "description": "<2-3 sentence technical description>", "pros": ["<pro>", ...], "cons": ["<con>", ...], "complexity": "Low" | "Medium" | "High", "recommended": true | false }
                                     Exactly one option must have recommended: true
+"epic"                  : string  — A short Epic name grouping this story (e.g. "User Authentication", "Payments & Billing", "Reporting Dashboard"). Stories that are part of the same feature area should share the same epic name. If the transcript has only one theme, all stories can share one epic name.
 "dependencies"          : array   — list of story id strings this story depends on (e.g. ["story-1"]). Use [] if none.
 "status"                : string  — always "pending"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EXTRACTION RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Extract 1 to 6 stories. Each story must represent one distinct, independently-deliverable feature or requirement.
+1. Extract ALL distinct stories mentioned — do not artificially limit. A detailed transcript may contain 10 or more stories. Extract every independently-deliverable feature or requirement.
 2. If the transcript mentions the same feature multiple ways, merge them into one story — do not duplicate.
 3. If the transcript is vague, short, or ambiguous, still produce at least 1 story using whatever context is available. Infer a sensible persona, action, and benefit from the topic.
 4. Do NOT invent features not implied by the transcript.
@@ -136,100 +252,65 @@ EXAMPLE — one well-formed story object (for schema reference only)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TRANSCRIPT TO ANALYSE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${text.slice(0, 28000)}`;
+`;
 
-  // gpt-4o-mini context window is 128k tokens; 16000 output tokens gives ample room for 10+ stories
-  const MAX_OUTPUT_TOKENS = 16000;
-
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
-        'X-Title': 'SDLC Autopilot'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: MAX_OUTPUT_TOKENS
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('OpenRouter error:', err);
-      return res.status(500).json({ error: 'AI service error', detail: err });
-    }
-
-    const data = await response.json();
+  // Helper: run a single extraction AI call for one chunk of text
+  const runExtractionCall = async (chunk) => {
+    const fullPrompt = prompt + chunk;
+    const data = await callAI('openai/gpt-4o-mini', [{ role: 'user', content: fullPrompt }], 0.3);
     const rawContent = data.choices?.[0]?.message?.content || '';
     const finishReason = data.choices?.[0]?.finish_reason;
-    console.log(`[extract] finish_reason=${finishReason} tokens_used=${JSON.stringify(data.usage)}`);
-
+    console.log(`[extract] finish_reason=${finishReason} input_chars=${chunk.length} tokens=${JSON.stringify(data.usage)}`);
     if (finishReason === 'length') {
-      console.warn('[extract] Model hit max_tokens limit — response may be truncated. Consider splitting the transcript.');
+      console.warn('[extract] finish_reason=length on a chunk — some stories in this segment may be truncated.');
+    }
+    return { rawContent, finishReason, usage: data.usage, model: data.model };
+  };
+
+  try {
+    // Chunk the cleaned transcript if it's very long
+    const chunks = chunkTranscript(cleaned);
+    console.log(`[extract] Transcript: ${text.length} chars raw → ${cleaned.length} chars cleaned → ${chunks.length} chunk(s)`);
+
+    const allStories = [];
+    let lastUsage = null, lastModel = null, anyTruncated = false;
+
+    for (let i = 0; i < chunks.length; i++) {
+      const { rawContent, finishReason, usage, model } = await runExtractionCall(chunks[i]);
+      lastUsage = usage; lastModel = model;
+      if (finishReason === 'length') anyTruncated = true;
+
+      const parsed = parseStoriesFromContent(rawContent);
+      if (!parsed || parsed.length === 0) {
+        console.warn(`[extract] Chunk ${i + 1}/${chunks.length} returned no stories.`);
+        continue;
+      }
+      allStories.push(...parsed);
     }
 
-    // Strip markdown code fences if the model wrapped the JSON despite instructions
-    const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-
-    let stories;
-    try {
-      // Try direct parse first (ideal — model returned clean JSON)
-      const parsed = JSON.parse(content);
-      stories = Array.isArray(parsed) ? parsed : [parsed];
-    } catch {
-      // Fallback 1: extract the first JSON array via greedy regex
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        try {
-          stories = JSON.parse(jsonMatch[0]);
-          if (!Array.isArray(stories)) stories = [stories];
-        } catch {}
-      }
-
-      // Fallback 2: the model was cut off mid-JSON — try to recover truncated objects
-      if (!stories) {
-        // Find where the array starts and try to extract complete objects before truncation
-        const arrayStart = content.indexOf('[');
-        if (arrayStart !== -1) {
-          const partial = content.slice(arrayStart);
-          // Extract individual story objects using a balanced-brace parser
-          const recovered = [];
-          let depth = 0, start = -1;
-          for (let i = 0; i < partial.length; i++) {
-            if (partial[i] === '{') { if (depth === 0) start = i; depth++; }
-            else if (partial[i] === '}') {
-              depth--;
-              if (depth === 0 && start !== -1) {
-                try { recovered.push(JSON.parse(partial.slice(start, i + 1))); } catch {}
-                start = -1;
-              }
-            }
-          }
-          if (recovered.length > 0) {
-            console.warn(`[extract] Recovered ${recovered.length} complete story objects from truncated response.`);
-            stories = recovered;
-          }
-        }
-      }
-
-      if (!stories) {
-        console.error('No JSON array found in response:', content.slice(0, 500));
-        return res.status(500).json({ error: 'Could not parse AI response', raw: rawContent.slice(0, 2000) });
-      }
-    }
-
-    if (!stories || stories.length === 0) {
-      console.warn('AI returned empty stories array — model response:', content.slice(0, 500));
+    if (allStories.length === 0) {
       return res.status(422).json({ error: 'AI returned no stories. The transcript may be too short or unclear. Please add more detail and try again.' });
     }
 
-    const truncated = finishReason === 'length';
-    res.json({ stories, model: data.model, usage: data.usage, truncated });
+    // De-duplicate stories by title similarity when multiple chunks were used
+    let finalStories = allStories;
+    if (chunks.length > 1) {
+      const seen = new Set();
+      finalStories = allStories.filter(s => {
+        const key = (s.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      console.log(`[extract] Merged ${allStories.length} stories → ${finalStories.length} after de-duplication`);
+    }
+
+    // Re-sequence story IDs to be contiguous
+    finalStories = finalStories.map((s, i) => ({ ...s, id: `story-${i + 1}` }));
+
+    const result = { stories: finalStories, model: lastModel, usage: lastUsage, truncated: anyTruncated };
+    extractionCache.set(cacheKey, result);
+    res.json(result);
   } catch (err) {
     console.error('Extraction error:', err);
     res.status(500).json({ error: err.message });
@@ -330,8 +411,7 @@ ${rawTranscript.slice(0, 8000)}`;
       body: JSON.stringify({
         model: 'google/gemini-flash-1.5',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 3000
+        temperature: 0.2
       })
     });
 
@@ -515,8 +595,7 @@ Return ONLY the markdown checklist. No preamble.`;
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 800
+        temperature: 0.2
       })
     });
 
@@ -579,8 +658,7 @@ BODY:
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: 1000
+        temperature: 0.3
       })
     });
 
@@ -701,8 +779,7 @@ Respond with ONLY a valid JSON object. No markdown wrapper, no explanation.`;
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 3500
+        temperature: 0.2
       })
     });
 
@@ -793,8 +870,7 @@ Respond with ONLY the HTML string. No markdown, no code fences, no explanation.`
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: 4000
+        temperature: 0.3
       })
     });
 
@@ -866,8 +942,7 @@ Respond with ONLY a valid JSON array. No markdown, no explanation.`;
       body: JSON.stringify({
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.2,
-        max_tokens: 2500
+        temperature: 0.2
       })
     });
 

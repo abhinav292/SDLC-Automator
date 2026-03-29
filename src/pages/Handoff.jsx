@@ -127,22 +127,37 @@ export const Handoff = () => {
     setPhaseStatus('jira', 'active');
     const jiraMap = {};
 
-    // 1a. Create Epic for this pipeline run
+    // 1a. Group stories by their `epic` field, falling back to a default epic
     const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const epicName = `${settings.projectName || 'Sprint'} – ${today}`;
-    const epicResult = await createJiraEpic(epicName);
-    const epicKey = epicResult.success ? epicResult.key : null;
-    if (!epicResult.success) {
-      errs.push(`Jira Epic – could not create epic "${epicName}": ${epicResult.error}`);
-      setErrors([...errs]);
+    const defaultEpicName = `${settings.projectName || 'Sprint'} – ${today}`;
+
+    // Build a map: epicLabel → [stories]
+    const epicGroups = {};
+    for (const story of approvedStories) {
+      const epicLabel = (typeof story.epic === 'string' && story.epic.trim()) ? story.epic.trim() : defaultEpicName;
+      if (!epicGroups[epicLabel]) epicGroups[epicLabel] = [];
+      epicGroups[epicLabel].push(story);
     }
 
-    // 1b. Create Stories linked to the Epic
-    for (const story of approvedStories) {
-      const result = await createJiraStory(story, epicKey);
-      jiraMap[story.id] = result;
-      setJiraResults(prev => ({ ...prev, [story.id]: result }));
-      if (!result.success) errs.push(`Jira Story "${story.title}" – ${result.error}`);
+    // 1b. Create one Jira Epic per group, then create its stories under it
+    const epicKeyMap = {}; // epicLabel → Jira epic key
+
+    for (const [epicLabel, storiesInGroup] of Object.entries(epicGroups)) {
+      const epicResult = await createJiraEpic(epicLabel);
+      const epicKey = epicResult.success ? epicResult.key : null;
+      if (!epicResult.success) {
+        errs.push(`Jira Epic "${epicLabel}" – ${epicResult.error}`);
+        setErrors([...errs]);
+      } else {
+        epicKeyMap[epicLabel] = epicKey;
+      }
+
+      for (const story of storiesInGroup) {
+        const result = await createJiraStory(story, epicKey);
+        jiraMap[story.id] = result;
+        setJiraResults(prev => ({ ...prev, [story.id]: result }));
+        if (!result.success) errs.push(`Jira Story "${story.title}" – ${result.error}`);
+      }
     }
     setErrors([...errs]);
 

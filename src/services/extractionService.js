@@ -109,6 +109,7 @@ const normaliseStory = (s, i) => ({
   qaScenarios: Array.isArray(s.qaScenarios) ? s.qaScenarios.filter(q => typeof q === 'string') : [],
   riskFlags: coerceRiskFlags(s.riskFlags),
   solution: coerceSolutionOptions(s.solution),
+  epic: typeof s.epic === 'string' ? s.epic.trim() : '',
   dependencies: Array.isArray(s.dependencies) ? s.dependencies.filter(d => typeof d === 'string') : [],
   status: 'pending'
 });
