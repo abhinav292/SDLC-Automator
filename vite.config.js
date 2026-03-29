@@ -4,19 +4,36 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const domain = env.ATLASSIAN_DOMAIN ? env.ATLASSIAN_DOMAIN.replace(/\/$/, '') : '';
-  const authHeader = env.ATLASSIAN_EMAIL && env.ATLASSIAN_API_TOKEN
+  const atlassianAuthHeader = env.ATLASSIAN_EMAIL && env.ATLASSIAN_API_TOKEN
     ? `Basic ${Buffer.from(`${env.ATLASSIAN_EMAIL}:${env.ATLASSIAN_API_TOKEN}`).toString('base64')}`
+    : '';
+
+  // Bitbucket uses its own API token (may differ from the Jira/Confluence token)
+  const bitbucketToken = env.BITBUCKET_API_TOKEN || env.ATLASSIAN_API_TOKEN || '';
+  const bitbucketAuthHeader = env.ATLASSIAN_EMAIL && bitbucketToken
+    ? `Basic ${Buffer.from(`${env.ATLASSIAN_EMAIL}:${bitbucketToken}`).toString('base64')}`
     : '';
 
   const addAtlassianAuth = (proxy) => {
     proxy.on('proxyReq', (proxyReq) => {
-      if (authHeader) proxyReq.setHeader('Authorization', authHeader);
+      if (atlassianAuthHeader) proxyReq.setHeader('Authorization', atlassianAuthHeader);
       proxyReq.setHeader('Accept', 'application/json');
       proxyReq.setHeader('User-Agent', 'Node.js/proxy');
       proxyReq.removeHeader('Origin');
       proxyReq.removeHeader('Referer');
     });
     proxy.on('error', (err) => console.error('Proxy Error:', err));
+  };
+
+  const addBitbucketAuth = (proxy) => {
+    proxy.on('proxyReq', (proxyReq) => {
+      if (bitbucketAuthHeader) proxyReq.setHeader('Authorization', bitbucketAuthHeader);
+      proxyReq.setHeader('Accept', 'application/json');
+      proxyReq.setHeader('User-Agent', 'Node.js/proxy');
+      proxyReq.removeHeader('Origin');
+      proxyReq.removeHeader('Referer');
+    });
+    proxy.on('error', (err) => console.error('Bitbucket Proxy Error:', err));
   };
 
   return {
@@ -47,7 +64,7 @@ export default defineConfig(({ mode }) => {
           target: 'https://api.bitbucket.org/2.0',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/bitbucket/, ''),
-          configure: addAtlassianAuth
+          configure: addBitbucketAuth
         }
       }
     },
