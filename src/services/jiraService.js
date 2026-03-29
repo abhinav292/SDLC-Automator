@@ -54,7 +54,7 @@ const buildStoryADF = (story) => {
     type: 'bulletList',
     content: items.map(text => ({
       type: 'listItem',
-      content: [{ type: 'paragraph', content: [{ type: 'text', text }] }]
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: String(text) }] }]
     }))
   });
 
@@ -64,9 +64,12 @@ const buildStoryADF = (story) => {
     content: [{ type: 'text', text }]
   });
 
+  // ADF codeBlock requires non-empty text; use a placeholder comment when empty
+  const gherkinText = qaScenarios.filter(s => typeof s === 'string' && s.trim()).join('\n\n');
+
   const content = [
     makeHeading('User Story', 2),
-    { type: 'paragraph', content: [{ type: 'text', text: story.description }] },
+    { type: 'paragraph', content: [{ type: 'text', text: story.description || 'No description provided.' }] },
 
     makeHeading('Positive Acceptance Criteria'),
     makeBulletList(acPositive.length > 0 ? acPositive : ['No positive criteria defined.']),
@@ -81,49 +84,82 @@ const buildStoryADF = (story) => {
 
     ...(risks.length > 0 ? [
       makeHeading('Risk Flags'),
-      makeBulletList(risks.map(r => r.text))
+      makeBulletList(risks.map(r => (typeof r === 'object' ? r.text : r)).filter(Boolean))
     ] : []),
 
     makeHeading('QA Scenarios'),
     {
       type: 'codeBlock',
       attrs: { language: 'gherkin' },
-      content: [{ type: 'text', text: qaScenarios.join('\n\n') || '# No scenarios defined' }]
+      content: [{ type: 'text', text: gherkinText || '# No QA scenarios defined' }]
     }
   ];
 
   return { type: 'doc', version: 1, content };
 };
 
+const parseJiraError = (data) =>
+  data.errorMessages?.join(', ') || JSON.stringify(data.errors || data).slice(0, 300);
+
 export const createJiraStory = async (story, epicKey = null) => {
-  const fields = {
+  const baseFields = {
     project: { key: PROJECT_KEY },
     summary: story.title,
     description: buildStoryADF(story),
-    issuetype: { name: 'Story' },
+    issuetype: { name: 'Story' }
+  };
+
+  // Build the field set progressively — try with all optional fields, then fall back one-by-one
+  const optionalFields = {
     priority: { name: story.priority || 'Medium' },
     customfield_10016: story.adjustedPoints || story.storyPoints || 3,
     ...(story.labels?.length > 0 ? { labels: story.labels } : {}),
-    // Epic Link — customfield_10014 works in Jira Cloud next-gen and most classic projects
     ...(epicKey ? { customfield_10014: epicKey } : {})
   };
 
-  try {
-    const { ok, data } = await jiraPost('/api/jira/issue', { fields });
-    if (ok) return { success: true, key: data.key, id: data.id, url: `${getJiraBaseUrl()}/browse/${data.key}` };
+  const warnings = [];
 
-    // If only the epic link field failed, retry without it
-    if (epicKey && (data.errors?.customfield_10014 || data.errors?.['Epic Link'])) {
-      const { customfield_10014, ...fieldsNoEpic } = fields;
-      const { ok: ok2, data: data2 } = await jiraPost('/api/jira/issue', { fields: fieldsNoEpic });
-      if (ok2) return { success: true, key: data2.key, id: data2.id, url: `${getJiraBaseUrl()}/browse/${data2.key}` };
-      return { success: false, error: data2.errorMessages?.join(', ') || JSON.stringify(data2.errors || data2) };
+  // Attempt 1: full field set
+  try {
+    const { ok, data } = await jiraPost('/api/jira/issue', { fields: { ...baseFields, ...optionalFields } });
+    if (ok) return { success: true, key: data.key, id: data.id, url: `${getJiraBaseUrl()}/browse/${data.key}`, warnings };
+
+    // Identify which optional fields caused errors and strip them
+    const errFields = Object.keys(data.errors || {});
+    const isOptionalError = errFields.some(f =>
+      ['customfield_10016', 'customfield_10014', 'customfield_10011', 'labels', 'priority', 'Epic Link', 'Story Points'].some(k => f.includes(k) || f === k)
+    );
+
+    if (!isOptionalError) {
+      console.error('Jira story error (non-field):', data);
+      return { success: false, error: parseJiraError(data) };
     }
 
-    console.error('Jira story error:', data);
-    return { success: false, error: data.errorMessages?.join(', ') || JSON.stringify(data.errors || data) };
+    // Build a reduced field set, dropping the offending optional fields
+    const strippedOptional = { ...optionalFields };
+    for (const f of errFields) {
+      if (f in strippedOptional) { warnings.push(`Field "${f}" not available in this project — skipped.`); delete strippedOptional[f]; }
+      if (f.includes('10016') || f.toLowerCase().includes('story points')) { warnings.push('Story Points field not available — skipped.'); delete strippedOptional.customfield_10016; }
+      if (f.includes('10014') || f.toLowerCase().includes('epic')) { warnings.push('Epic Link field not available — story created without epic link.'); delete strippedOptional.customfield_10014; }
+      if (f === 'labels') { warnings.push('Labels field rejected — skipped.'); delete strippedOptional.labels; }
+      if (f === 'priority') { warnings.push('Priority field rejected — skipped.'); delete strippedOptional.priority; }
+    }
+
+    // Attempt 2: stripped optional fields
+    const { ok: ok2, data: data2 } = await jiraPost('/api/jira/issue', { fields: { ...baseFields, ...strippedOptional } });
+    if (ok2) return { success: true, key: data2.key, id: data2.id, url: `${getJiraBaseUrl()}/browse/${data2.key}`, warnings };
+
+    // Attempt 3: bare minimum — no optional fields at all
+    const { ok: ok3, data: data3 } = await jiraPost('/api/jira/issue', { fields: baseFields });
+    if (ok3) {
+      warnings.push('Created with minimal fields only — all optional fields (story points, priority, labels, epic) were rejected by Jira.');
+      return { success: true, key: data3.key, id: data3.id, url: `${getJiraBaseUrl()}/browse/${data3.key}`, warnings };
+    }
+
+    console.error('Jira story error (all attempts):', data3);
+    return { success: false, error: parseJiraError(data3), warnings };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: err.message, warnings };
   }
 };
 
@@ -285,10 +321,15 @@ export const linkJiraIssues = async (fromKey, toKey, linkType = 'Blocks') => {
 export const getJiraProjects = async () => {
   try {
     const res = await fetch('/api/jira/project');
-    if (res.ok) return await res.json();
-    return [];
-  } catch {
-    return [];
+    if (res.ok) {
+      const data = await res.json();
+      return { projects: Array.isArray(data) ? data : [], error: null };
+    }
+    let errMsg = `HTTP ${res.status}`;
+    try { const d = await res.json(); errMsg = d.message || d.errorMessages?.join(', ') || errMsg; } catch {}
+    return { projects: [], error: errMsg };
+  } catch (err) {
+    return { projects: [], error: err.message };
   }
 };
 

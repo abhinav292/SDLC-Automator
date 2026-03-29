@@ -469,6 +469,13 @@ export const Handoff = () => {
                         {result.error}
                       </p>
                     )}
+                    {result?.success && result.warnings?.length > 0 && (
+                      <div className="mt-1.5 pl-1">
+                        {result.warnings.map((w, i) => (
+                          <p key={i} className="text-xs" style={{ color: 'var(--color-warning, #f59e0b)' }}>⚠ {w}</p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}

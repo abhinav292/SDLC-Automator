@@ -44,11 +44,13 @@ export const getBitbucketWorkspaces = async () => {
     const res = await fetch('/api/bitbucket/workspaces');
     if (res.ok) {
       const data = await res.json();
-      return data.values || [];
+      return { workspaces: data.values || [], error: null };
     }
-    return [];
-  } catch {
-    return [];
+    let errMsg = `HTTP ${res.status}`;
+    try { const d = await res.json(); errMsg = d.error?.message || d.message || errMsg; } catch {}
+    return { workspaces: [], error: errMsg };
+  } catch (err) {
+    return { workspaces: [], error: err.message };
   }
 };
 

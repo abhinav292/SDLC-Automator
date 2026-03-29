@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   Settings as SettingsIcon, CheckCircle, AlertTriangle, Loader2,
-  ExternalLink, RefreshCw, GitBranch, FileText, CheckSquare, Bell, TrendingUp
+  ExternalLink, RefreshCw, GitBranch, FileText, CheckSquare, Bell, TrendingUp,
+  FlaskConical
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getJiraProjects, getJiraBaseUrl, getJiraVelocity } from '../services/jiraService';
 import { getConfluenceSpaces, getConfluenceBaseUrl } from '../services/confluenceService';
 import { getBitbucketWorkspaces, getBitbucketRepos } from '../services/bitbucketService';
+import { diagnoseJiraWrite } from '../services/apiService';
 import './Settings.css';
 
 const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
@@ -23,14 +25,19 @@ const StatusIndicator = ({ status }) => {
 export const Settings = () => {
   const { settings, saveSettings } = useApp();
   const [jiraStatus, setJiraStatus] = useState('idle');
+  const [jiraError, setJiraError] = useState(null);
   const [confluenceStatus, setConfluenceStatus] = useState('idle');
+  const [confluenceError, setConfluenceError] = useState(null);
   const [bitbucketStatus, setBitbucketStatus] = useState('idle');
+  const [bitbucketError, setBitbucketError] = useState(null);
   const [jiraProjects, setJiraProjects] = useState([]);
   const [confluenceSpaces, setConfluenceSpaces] = useState([]);
   const [bbWorkspaces, setBbWorkspaces] = useState([]);
   const [bbRepos, setBbRepos] = useState([]);
   const [velocityData, setVelocityData] = useState(null);
   const [velocityLoading, setVelocityLoading] = useState(false);
+  const [jiraDiagnosing, setJiraDiagnosing] = useState(false);
+  const [jiraDiagResult, setJiraDiagResult] = useState(null);
   const [form, setForm] = useState({
     bbWorkspace: settings.bbWorkspace || '',
     bbRepo: settings.bbRepo || '',
@@ -49,7 +56,7 @@ export const Settings = () => {
     if (form.bbWorkspace) loadBbRepos(form.bbWorkspace);
   }, [form.bbWorkspace]);
 
-  const testConnections = async () => {
+  const testConnections = () => {
     testJira();
     testConfluence();
     testBitbucket();
@@ -57,25 +64,44 @@ export const Settings = () => {
 
   const testJira = async () => {
     setJiraStatus('checking');
-    const projects = await getJiraProjects();
-    setJiraProjects(projects.slice ? projects.slice(0, 10) : []);
-    setJiraStatus(projects.length > 0 || Array.isArray(projects) ? 'ok' : 'error');
-    if (projects.length === 0) setJiraStatus('error');
+    setJiraError(null);
+    const { projects, error } = await getJiraProjects();
+    setJiraProjects((projects || []).slice(0, 10));
+    if (error) { setJiraStatus('error'); setJiraError(error); }
+    else if (!projects || projects.length === 0) { setJiraStatus('error'); setJiraError('No projects returned — check your API token and domain.'); }
     else setJiraStatus('ok');
   };
 
   const testConfluence = async () => {
     setConfluenceStatus('checking');
-    const spaces = await getConfluenceSpaces();
-    setConfluenceSpaces(spaces.slice ? spaces.slice(0, 10) : []);
-    setConfluenceStatus(spaces.length > 0 ? 'ok' : 'error');
+    setConfluenceError(null);
+    const { spaces, error } = await getConfluenceSpaces();
+    setConfluenceSpaces((spaces || []).slice(0, 10));
+    if (error) { setConfluenceStatus('error'); setConfluenceError(error); }
+    else if (!spaces || spaces.length === 0) { setConfluenceStatus('error'); setConfluenceError('No spaces returned — check your Confluence access.'); }
+    else setConfluenceStatus('ok');
   };
 
   const testBitbucket = async () => {
     setBitbucketStatus('checking');
-    const ws = await getBitbucketWorkspaces();
-    setBbWorkspaces(ws);
-    setBitbucketStatus(ws.length > 0 ? 'ok' : 'error');
+    setBitbucketError(null);
+    const { workspaces, error } = await getBitbucketWorkspaces();
+    setBbWorkspaces(workspaces || []);
+    if (error) { setBitbucketStatus('error'); setBitbucketError(error); }
+    else if (!workspaces || workspaces.length === 0) { setBitbucketStatus('error'); setBitbucketError('No workspaces returned — check your BITBUCKET_API_TOKEN.'); }
+    else setBitbucketStatus('ok');
+  };
+
+  const runJiraDiagnose = async () => {
+    setJiraDiagnosing(true);
+    setJiraDiagResult(null);
+    try {
+      const result = await diagnoseJiraWrite();
+      setJiraDiagResult(result);
+    } catch (err) {
+      setJiraDiagResult({ success: false, error: err.message });
+    }
+    setJiraDiagnosing(false);
   };
 
   const loadBbRepos = async (workspace) => {
@@ -121,7 +147,7 @@ export const Settings = () => {
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold">Atlassian Connection</h2>
           <button className="btn btn-secondary text-xs py-1.5 gap-1" onClick={testConnections}>
-            <RefreshCw size={13} /> Test Connections
+            <RefreshCw size={13} /> Test All
           </button>
         </div>
 
@@ -133,13 +159,25 @@ export const Settings = () => {
 
       {/* Jira Status */}
       <div className="card mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <CheckSquare size={20} style={{ color: '#60a5fa' }} />
-          <h2 className="text-lg font-semibold">Jira</h2>
-          <StatusIndicator status={jiraStatus} />
-          {jiraStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
-          {jiraStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <CheckSquare size={20} style={{ color: '#60a5fa' }} />
+            <h2 className="text-lg font-semibold">Jira</h2>
+            <StatusIndicator status={jiraStatus} />
+            {jiraStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
+            {jiraStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+          </div>
+          <button className="btn btn-secondary text-xs py-1 px-2 gap-1" onClick={testJira} disabled={jiraStatus === 'checking'}>
+            <RefreshCw size={12} /> Re-test
+          </button>
         </div>
+
+        {jiraStatus === 'error' && jiraError && (
+          <div className="p-3 rounded-lg mb-3 border" style={{ background: 'var(--color-error-bg, rgba(239,68,68,0.08))', borderColor: 'rgba(239,68,68,0.25)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--color-error)' }}>Error: {jiraError}</p>
+            <p className="text-xs text-tertiary mt-1">Check ATLASSIAN_DOMAIN, ATLASSIAN_EMAIL, and ATLASSIAN_API_TOKEN in your environment.</p>
+          </div>
+        )}
 
         {jiraStatus === 'ok' && (
           <>
@@ -150,7 +188,7 @@ export const Settings = () => {
               </a>
             </p>
             {jiraProjects.length > 0 && (
-              <div>
+              <div className="mb-4">
                 <p className="text-xs text-tertiary uppercase font-semibold mb-2">Available Projects</p>
                 <div className="flex flex-wrap gap-2">
                   {jiraProjects.map(p => (
@@ -163,20 +201,62 @@ export const Settings = () => {
             )}
           </>
         )}
-        {jiraStatus === 'error' && (
-          <p className="text-sm text-error">Could not connect to Jira. Check your domain, email, and API token in the environment variables.</p>
+
+        {/* Jira Write-access diagnostic */}
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-subtle">
+          <div>
+            <p className="text-xs font-medium">Test Write Access</p>
+            <p className="text-xs text-tertiary">Creates and immediately deletes a test issue to verify push permissions.</p>
+          </div>
+          <button
+            className="btn btn-secondary text-xs py-1 px-2 gap-1 flex-shrink-0 ml-3"
+            onClick={runJiraDiagnose}
+            disabled={jiraDiagnosing}
+          >
+            {jiraDiagnosing ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+            {jiraDiagnosing ? 'Testing…' : 'Test Write'}
+          </button>
+        </div>
+        {jiraDiagResult && (
+          <div className={`mt-2 p-2 rounded text-xs ${jiraDiagResult.success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+            {jiraDiagResult.success ? (
+              <>
+                <CheckCircle size={11} className="inline mr-1" />
+                Write access confirmed — test issue created and deleted successfully.
+                {jiraDiagResult.warnings?.map((w, i) => <span key={i} className="block text-yellow-400 mt-1">⚠ {w}</span>)}
+              </>
+            ) : (
+              <>
+                <AlertTriangle size={11} className="inline mr-1" />
+                {jiraDiagResult.error}
+                {jiraDiagResult.detail && <span className="block text-tertiary mt-0.5">{jiraDiagResult.detail}</span>}
+              </>
+            )}
+          </div>
         )}
       </div>
 
       {/* Confluence */}
       <div className="card mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <FileText size={20} style={{ color: '#a78bfa' }} />
-          <h2 className="text-lg font-semibold">Confluence</h2>
-          <StatusIndicator status={confluenceStatus} />
-          {confluenceStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
-          {confluenceStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <FileText size={20} style={{ color: '#a78bfa' }} />
+            <h2 className="text-lg font-semibold">Confluence</h2>
+            <StatusIndicator status={confluenceStatus} />
+            {confluenceStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
+            {confluenceStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+          </div>
+          <button className="btn btn-secondary text-xs py-1 px-2 gap-1" onClick={testConfluence} disabled={confluenceStatus === 'checking'}>
+            <RefreshCw size={12} /> Re-test
+          </button>
         </div>
+
+        {confluenceStatus === 'error' && confluenceError && (
+          <div className="p-3 rounded-lg mb-3 border" style={{ background: 'var(--color-error-bg, rgba(239,68,68,0.08))', borderColor: 'rgba(239,68,68,0.25)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--color-error)' }}>Error: {confluenceError}</p>
+            <p className="text-xs text-tertiary mt-1">Confluence uses the same ATLASSIAN_API_TOKEN as Jira. Confirm your account has Confluence access.</p>
+          </div>
+        )}
 
         <div className="mb-4">
           <label className="text-sm font-medium block mb-1">Space Key</label>
@@ -193,7 +273,7 @@ export const Settings = () => {
 
         {confluenceStatus === 'ok' && confluenceSpaces.length > 0 && (
           <div>
-            <p className="text-xs text-tertiary uppercase font-semibold mb-2">Available Spaces</p>
+            <p className="text-xs text-tertiary uppercase font-semibold mb-2">Available Spaces — click to select</p>
             <div className="flex flex-wrap gap-2">
               {confluenceSpaces.map(s => (
                 <button
@@ -217,13 +297,25 @@ export const Settings = () => {
 
       {/* Bitbucket */}
       <div className="card mb-6">
-        <div className="flex items-center gap-3 mb-4">
-          <GitBranch size={20} style={{ color: '#818cf8' }} />
-          <h2 className="text-lg font-semibold">Bitbucket</h2>
-          <StatusIndicator status={bitbucketStatus} />
-          {bitbucketStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
-          {bitbucketStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <GitBranch size={20} style={{ color: '#818cf8' }} />
+            <h2 className="text-lg font-semibold">Bitbucket</h2>
+            <StatusIndicator status={bitbucketStatus} />
+            {bitbucketStatus === 'ok' && <span className="text-success text-xs font-semibold">Connected</span>}
+            {bitbucketStatus === 'error' && <span className="text-error text-xs font-semibold">Connection failed</span>}
+          </div>
+          <button className="btn btn-secondary text-xs py-1 px-2 gap-1" onClick={testBitbucket} disabled={bitbucketStatus === 'checking'}>
+            <RefreshCw size={12} /> Re-test
+          </button>
         </div>
+
+        {bitbucketStatus === 'error' && bitbucketError && (
+          <div className="p-3 rounded-lg mb-3 border" style={{ background: 'var(--color-error-bg, rgba(239,68,68,0.08))', borderColor: 'rgba(239,68,68,0.25)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--color-error)' }}>Error: {bitbucketError}</p>
+            <p className="text-xs text-tertiary mt-1">Ensure BITBUCKET_API_TOKEN is set in Replit Secrets with your Bitbucket App Password or token.</p>
+          </div>
+        )}
 
         <div className="bitbucket-fields-grid">
           <div>

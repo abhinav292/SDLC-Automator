@@ -138,7 +138,11 @@ export const Dashboard = () => {
       }
 
       setProcessingStep('Running AI extraction via OpenRouter...');
-      const stories = await extractStoriesFromFiles(texts);
+      const { stories, truncated } = await extractStoriesFromFiles(texts);
+
+      if (truncated) {
+        console.warn('[Dashboard] AI response was truncated — some stories may be missing. Try splitting the transcript.');
+      }
 
       setProcessingStep('Saving to database...');
       await setStoriesFromExtraction(stories, pipelineId);

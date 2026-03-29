@@ -40,6 +40,9 @@ export const cleanTranscript = (rawTranscript) =>
 // Health
 export const checkBackendHealth = () => request('GET', '/health');
 
+// Jira write-access diagnostic
+export const diagnoseJiraWrite = () => request('POST', '/diagnose-jira', {});
+
 // PR Checklist
 export const generatePRChecklist = (story) =>
   request('POST', '/generate-pr-checklist', { story });

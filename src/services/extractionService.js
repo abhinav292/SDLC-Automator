@@ -121,11 +121,11 @@ export const extractStoriesFromFiles = async (texts) => {
     const raw = result.stories || [];
     if (!Array.isArray(raw) || raw.length === 0) {
       console.warn('AI returned empty or non-array stories, falling back to local parser');
-      return localExtract(combined);
+      return { stories: localExtract(combined), truncated: false };
     }
-    return raw.map(normaliseStory);
+    return { stories: raw.map(normaliseStory), truncated: Boolean(result.truncated), model: result.model, usage: result.usage };
   } catch (err) {
     console.warn('AI extraction failed, falling back to local parser:', err.message);
-    return localExtract(combined);
+    return { stories: localExtract(combined), truncated: false };
   }
 };

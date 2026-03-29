@@ -136,7 +136,10 @@ EXAMPLE — one well-formed story object (for schema reference only)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TRANSCRIPT TO ANALYSE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${text.slice(0, 12000)}`;
+${text.slice(0, 28000)}`;
+
+  // gpt-4o-mini context window is 128k tokens; 16000 output tokens gives ample room for 10+ stories
+  const MAX_OUTPUT_TOKENS = 16000;
 
   try {
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -151,7 +154,7 @@ ${text.slice(0, 12000)}`;
         model: 'openai/gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
-        max_tokens: 4000
+        max_tokens: MAX_OUTPUT_TOKENS
       })
     });
 
@@ -163,6 +166,12 @@ ${text.slice(0, 12000)}`;
 
     const data = await response.json();
     const rawContent = data.choices?.[0]?.message?.content || '';
+    const finishReason = data.choices?.[0]?.finish_reason;
+    console.log(`[extract] finish_reason=${finishReason} tokens_used=${JSON.stringify(data.usage)}`);
+
+    if (finishReason === 'length') {
+      console.warn('[extract] Model hit max_tokens limit — response may be truncated. Consider splitting the transcript.');
+    }
 
     // Strip markdown code fences if the model wrapped the JSON despite instructions
     const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -173,18 +182,44 @@ ${text.slice(0, 12000)}`;
       const parsed = JSON.parse(content);
       stories = Array.isArray(parsed) ? parsed : [parsed];
     } catch {
-      // Fallback: extract the first JSON array via regex
+      // Fallback 1: extract the first JSON array via greedy regex
       const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
+      if (jsonMatch) {
+        try {
+          stories = JSON.parse(jsonMatch[0]);
+          if (!Array.isArray(stories)) stories = [stories];
+        } catch {}
+      }
+
+      // Fallback 2: the model was cut off mid-JSON — try to recover truncated objects
+      if (!stories) {
+        // Find where the array starts and try to extract complete objects before truncation
+        const arrayStart = content.indexOf('[');
+        if (arrayStart !== -1) {
+          const partial = content.slice(arrayStart);
+          // Extract individual story objects using a balanced-brace parser
+          const recovered = [];
+          let depth = 0, start = -1;
+          for (let i = 0; i < partial.length; i++) {
+            if (partial[i] === '{') { if (depth === 0) start = i; depth++; }
+            else if (partial[i] === '}') {
+              depth--;
+              if (depth === 0 && start !== -1) {
+                try { recovered.push(JSON.parse(partial.slice(start, i + 1))); } catch {}
+                start = -1;
+              }
+            }
+          }
+          if (recovered.length > 0) {
+            console.warn(`[extract] Recovered ${recovered.length} complete story objects from truncated response.`);
+            stories = recovered;
+          }
+        }
+      }
+
+      if (!stories) {
         console.error('No JSON array found in response:', content.slice(0, 500));
         return res.status(500).json({ error: 'Could not parse AI response', raw: rawContent.slice(0, 2000) });
-      }
-      try {
-        stories = JSON.parse(jsonMatch[0]);
-        if (!Array.isArray(stories)) stories = [stories];
-      } catch (parseErr) {
-        console.error('JSON parse error:', parseErr.message, 'Content snippet:', content.slice(0, 500));
-        return res.status(500).json({ error: 'Malformed JSON in AI response', detail: parseErr.message, raw: rawContent.slice(0, 2000) });
       }
     }
 
@@ -193,11 +228,73 @@ ${text.slice(0, 12000)}`;
       return res.status(422).json({ error: 'AI returned no stories. The transcript may be too short or unclear. Please add more detail and try again.' });
     }
 
-    res.json({ stories, model: data.model, usage: data.usage });
+    const truncated = finishReason === 'length';
+    res.json({ stories, model: data.model, usage: data.usage, truncated });
   } catch (err) {
     console.error('Extraction error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── JIRA WRITE-ACCESS DIAGNOSTIC ────────────────────────────────────────────
+// Creates a minimal test issue and immediately deletes it to verify write access.
+// Returns { success, key, error, detail, warnings }
+
+app.post('/diagnose-jira', async (req, res) => {
+  const projectKey = process.env.JIRA_PROJECT_KEY || 'KAN';
+  const domain = process.env.ATLASSIAN_DOMAIN || '';
+  const email = process.env.ATLASSIAN_EMAIL || '';
+  const token = process.env.ATLASSIAN_API_TOKEN || '';
+
+  if (!domain || !email || !token) {
+    return res.json({ success: false, error: 'Atlassian credentials not configured (ATLASSIAN_DOMAIN / ATLASSIAN_EMAIL / ATLASSIAN_API_TOKEN missing)' });
+  }
+
+  const authHeader = 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
+  const baseUrl = `https://${domain}/rest/api/3`;
+
+  const attempts = [
+    // Attempt 1: Story with Story Points
+    { fields: { project: { key: projectKey }, summary: '[SDLC Autopilot] Connection test — delete me', issuetype: { name: 'Story' }, customfield_10016: 1 }, label: 'Story + Story Points' },
+    // Attempt 2: Story without Story Points
+    { fields: { project: { key: projectKey }, summary: '[SDLC Autopilot] Connection test — delete me', issuetype: { name: 'Story' } }, label: 'Story only' },
+    // Attempt 3: Task (fallback issuetype)
+    { fields: { project: { key: projectKey }, summary: '[SDLC Autopilot] Connection test — delete me', issuetype: { name: 'Task' } }, label: 'Task' },
+  ];
+
+  let lastError = null;
+  const warnings = [];
+
+  for (const attempt of attempts) {
+    try {
+      const createRes = await fetch(`${baseUrl}/issue`, {
+        method: 'POST',
+        headers: { 'Authorization': authHeader, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ fields: attempt.fields })
+      });
+      const createData = await createRes.json();
+
+      if (createRes.ok && createData.key) {
+        if (attempt.label !== attempts[0].label) {
+          warnings.push(`Used fallback attempt: "${attempt.label}" — ${lastError || 'previous attempt rejected a field'}`);
+        }
+        // Immediately delete the test issue
+        try {
+          await fetch(`${baseUrl}/issue/${createData.key}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': authHeader }
+          });
+        } catch {}
+        return res.json({ success: true, key: createData.key, warnings });
+      }
+
+      lastError = createData.errorMessages?.join(', ') || JSON.stringify(createData.errors || createData).slice(0, 200);
+    } catch (err) {
+      lastError = err.message;
+    }
+  }
+
+  return res.json({ success: false, error: lastError, detail: 'All issue creation attempts failed. Check your Jira project key and permissions.' });
 });
 
 // ─── VOICE TRANSCRIPT CLEANUP ─────────────────────────────────────────────────

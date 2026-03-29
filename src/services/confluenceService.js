@@ -79,10 +79,12 @@ export const getConfluenceSpaces = async () => {
     const res = await fetch('/api/confluence/space?limit=20');
     if (res.ok) {
       const data = await res.json();
-      return data.results || [];
+      return { spaces: data.results || [], error: null };
     }
-    return [];
-  } catch {
-    return [];
+    let errMsg = `HTTP ${res.status}`;
+    try { const d = await res.json(); errMsg = d.message || d.error || errMsg; } catch {}
+    return { spaces: [], error: errMsg };
+  } catch (err) {
+    return { spaces: [], error: err.message };
   }
 };
