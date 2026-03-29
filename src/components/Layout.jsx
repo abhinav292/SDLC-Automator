@@ -1,31 +1,22 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  CheckSquare,
-  Network,
-  Settings,
-  Bell,
-  User,
-  Activity
+  LayoutDashboard, CheckSquare, Network, Settings, Bell, User, Activity
 } from 'lucide-react';
 import './Layout.css';
 
 const NavigationItem = ({ to, icon: Icon, label, exact }) => (
-  <NavLink
-    to={to}
-    end={exact}
-    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-  >
+  <NavLink to={to} end={exact} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
     <Icon size={20} />
     <span>{label}</span>
   </NavLink>
 );
 
+const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
+
 export const Layout = () => {
   return (
     <div className="app-container">
-      {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="logo-icon glass-panel flex items-center justify-center">
@@ -49,13 +40,14 @@ export const Layout = () => {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <div className="main-content">
-        {/* Topbar */}
         <header className="topbar glass-panel m-4">
           <div className="topbar-search">
             <span className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-              Active Environment: <span className="gradient-text">Production / Org-Main</span>
+              Active Environment:{' '}
+              <span className="gradient-text">
+                {DOMAIN ? DOMAIN.replace('.atlassian.net', '') : 'Production'} / Org-Main
+              </span>
             </span>
           </div>
           <div className="topbar-actions flex items-center gap-4">
@@ -74,7 +66,6 @@ export const Layout = () => {
           </div>
         </header>
 
-        {/* Page Content */}
         <main className="page-wrapper scrollable-y">
           <div className="page-container animate-fade-in">
             <Outlet />

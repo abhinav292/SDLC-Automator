@@ -31,3 +31,23 @@
 .loader-circle {
   color: var(--color-primary);
 }
+
+.sync-progress-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sync-phase {
+  transition: all 0.3s ease;
+}
+
+.grid-cols-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+
+.surface-elevated {
+  background-color: var(--bg-surface-elevated);
+}

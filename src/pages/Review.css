@@ -71,3 +71,25 @@
 .react-flow__pane {
   background-color: var(--bg-root);
 }
+
+.story-card.status-approved {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: linear-gradient(to right, rgba(16, 185, 129, 0.04), transparent);
+}
+
+.story-card.status-discarded {
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.custom-node.approved {
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.3);
+}
+
+.custom-node.discarded {
+  opacity: 0.4;
+}
+
+.solution-content {
+  padding-right: 0.5rem;
+}
