@@ -109,6 +109,15 @@ export const Handoff = () => {
     setPhase('running');
     const errs = [];
 
+    // ── Pre-flight: warn about missing settings before any API calls ──────────
+    if (!settings.bbWorkspace || !settings.bbRepo) {
+      errs.push('Bitbucket – workspace or repository not set. Go to Settings → Bitbucket to configure them. Branch and PR creation will be skipped.');
+    }
+    if (!settings.confluenceSpaceKey) {
+      errs.push('Confluence – no space key configured. Go to Settings → Confluence to set it. The doc will not be published.');
+    }
+    setErrors([...errs]);
+
     await new Promise(r => setTimeout(r, 400));
 
     // ── Step 1: Jira ──────────────────────────────────────────────────────────
@@ -120,25 +129,33 @@ export const Handoff = () => {
     const epicName = `${settings.projectName || 'Sprint'} – ${today}`;
     const epicResult = await createJiraEpic(epicName);
     const epicKey = epicResult.success ? epicResult.key : null;
+    if (!epicResult.success) {
+      errs.push(`Jira Epic – could not create epic "${epicName}": ${epicResult.error}`);
+      setErrors([...errs]);
+    }
 
     // 1b. Create Stories linked to the Epic
     for (const story of approvedStories) {
       const result = await createJiraStory(story, epicKey);
       jiraMap[story.id] = result;
       setJiraResults(prev => ({ ...prev, [story.id]: result }));
-      if (!result.success) errs.push(`Jira – ${story.title}: ${result.error}`);
+      if (!result.success) errs.push(`Jira Story "${story.title}" – ${result.error}`);
     }
+    setErrors([...errs]);
 
     // 1c. Create Dev + QA Sub-tasks for each story
     for (const story of approvedStories) {
       const storyResult = jiraMap[story.id];
       if (!storyResult?.success) continue;
 
-      await createJiraSubTask(
+      const devSubResult = await createJiraSubTask(
         storyResult.key,
         `Dev: ${story.title}`,
         `Implement the feature as described in the parent story.\n\n${story.technicalNotes || 'Refer to story description and acceptance criteria.'}`
       );
+      if (devSubResult && !devSubResult.success) {
+        errs.push(`Jira Dev Sub-task (${storyResult.key}) – ${devSubResult.error}`);
+      }
 
       let testCases = [];
       try {
@@ -147,7 +164,10 @@ export const Handoff = () => {
       } catch {
         // non-fatal — QA sub-task will be created with Gherkin only
       }
-      await createJiraQASubTask(storyResult.key, story, testCases);
+      const qaSubResult = await createJiraQASubTask(storyResult.key, story, testCases);
+      if (qaSubResult && !qaSubResult.success) {
+        errs.push(`Jira QA Sub-task (${storyResult.key}) – ${qaSubResult.error}`);
+      }
     }
 
     // 1d. Link story dependencies (Blocks relationship)
@@ -162,7 +182,9 @@ export const Handoff = () => {
     }
 
     setJiraIssues(jiraMap);
-    setPhaseStatus('jira', errs.some(e => e.startsWith('Jira')) ? 'error' : 'done');
+    setErrors([...errs]);
+    const jiraHadErrors = errs.some(e => e.startsWith('Jira'));
+    setPhaseStatus('jira', jiraHadErrors ? 'error' : 'done');
 
     await new Promise(r => setTimeout(r, 400));
 
@@ -177,8 +199,10 @@ export const Handoff = () => {
       const result = await createBitbucketBranch(bbWorkspace, bbRepo, branchName, bbDefaultBranch);
       branchMap[story.id] = { ...result, name: branchName };
       setBranchResults(prev => ({ ...prev, [story.id]: { ...result, name: branchName } }));
+      if (!result.success) errs.push(`Bitbucket Branch "${branchName}" – ${result.error}`);
     }
     setBitbucketBranches(branchMap);
+    setErrors([...errs]);
     setPhaseStatus('bitbucket', Object.values(branchMap).some(b => !b.success) ? 'error' : 'done');
 
     await new Promise(r => setTimeout(r, 300));
@@ -190,8 +214,12 @@ export const Handoff = () => {
     for (const story of approvedStories) {
       const branch = branchMap[story.id];
       const jiraKey = jiraMap[story.id]?.key;
-      if (!branch?.success || !bbWorkspace || !bbRepo) {
-        prMap[story.id] = { success: false, error: 'Branch not created' };
+      if (!branch?.success) {
+        prMap[story.id] = { success: false, error: 'Branch was not created — skipping PR' };
+        continue;
+      }
+      if (!bbWorkspace || !bbRepo) {
+        prMap[story.id] = { success: false, error: 'Bitbucket workspace/repo not configured' };
         continue;
       }
 
@@ -208,8 +236,10 @@ export const Handoff = () => {
       );
       prMap[story.id] = prResult;
       setPrResults(prev => ({ ...prev, [story.id]: prResult }));
+      if (!prResult.success) errs.push(`Bitbucket PR "${story.title}" – ${prResult.error}`);
     }
 
+    setErrors([...errs]);
     const anyPrFailed = Object.values(prMap).some(p => !p.success);
     setPhaseStatus('prchecklist', anyPrFailed ? 'error' : 'done');
 
@@ -223,12 +253,10 @@ export const Handoff = () => {
     try {
       const { bbWorkspace: ws, bbRepo: repo, bbDefaultBranch: branch = 'main' } = settings;
 
-      // Collect all story labels + titles for smart file selection
       const allLabels = [...new Set(approvedStories.flatMap(s => s.labels || []))];
       const allTitles = approvedStories.map(s => s.title).join(' ');
       const repoCtx = await fetchRepoContext(ws, repo, branch, allLabels, allTitles);
 
-      // Generate code scaffolding per story (sequential to avoid rate limits)
       for (const story of approvedStories) {
         try {
           const result = await generateCode(story, repoCtx);
@@ -239,11 +267,11 @@ export const Handoff = () => {
         }
       }
 
-      // Generate single solutioning doc covering all stories
       const docRes = await generateSolutioningDoc(approvedStories, repoCtx, settings.projectName || 'Sprint');
       solutioningHtml = docRes.html || null;
-    } catch {
-      // non-fatal — Confluence will fall back to basic sprint overview
+    } catch (err) {
+      errs.push(`Code/Doc Generation – ${err.message || 'AI service error. Confluence will use fallback content.'}`);
+      setErrors([...errs]);
     }
 
     setPhaseStatus('codeGen', 'done');
@@ -255,7 +283,8 @@ export const Handoff = () => {
     setConfluenceResult(confResult);
     setConfluencePages([confResult]);
     setPhaseStatus('confluence', confResult.success ? 'done' : 'error');
-    if (!confResult.success) errs.push(`Confluence: ${confResult.error}`);
+    if (!confResult.success) errs.push(`Confluence – ${confResult.error}`);
+    setErrors([...errs]);
 
     await new Promise(r => setTimeout(r, 300));
 
@@ -265,7 +294,9 @@ export const Handoff = () => {
       const emailRes = await generateStakeholderEmail(approvedStories, settings.projectName || 'Sprint Planning');
       setEmailContent(emailRes);
       setPhaseStatus('email', 'done');
-    } catch {
+    } catch (err) {
+      errs.push(`Stakeholder Email – ${err.message || 'AI service error'}`);
+      setErrors([...errs]);
       setPhaseStatus('email', 'error');
     }
 
@@ -306,15 +337,17 @@ export const Handoff = () => {
       try {
         const slkRes = await notifySlack(slackWebhook, slackMsg);
         setSlackStatus(slkRes.success ? 'sent' : 'failed');
-      } catch {
+        if (!slkRes.success) errs.push(`Slack notification – ${slkRes.error || 'send failed'}`);
+      } catch (err) {
         setSlackStatus('failed');
+        errs.push(`Slack notification – ${err.message}`);
       }
     } else {
       setSlackStatus('skipped');
     }
     setPhaseStatus('notifications', 'done');
 
-    setErrors(errs);
+    setErrors([...errs]);
     setPipelineStats(prev => ({
       ...prev,
       pipelineRuns: (prev.pipelineRuns || 0) + 1,

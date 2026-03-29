@@ -346,11 +346,15 @@ export const Dashboard = () => {
                       <CheckCircle size={11} /> {run.approved_count} pushed
                     </span>
                   )}
-                  {run.jira_keys && JSON.parse(run.jira_keys || '[]').length > 0 && (
-                    <span style={{ color: '#60a5fa', fontFamily: 'monospace' }}>
-                      <GitBranch size={11} /> {JSON.parse(run.jira_keys).join(', ')}
-                    </span>
-                  )}
+                  {(() => {
+                    let keys = [];
+                    try { keys = JSON.parse(run.jira_keys || '[]') || []; } catch {}
+                    return keys.length > 0 ? (
+                      <span style={{ color: '#60a5fa', fontFamily: 'monospace' }}>
+                        <GitBranch size={11} /> {keys.join(', ')}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
               </div>
             ))}
