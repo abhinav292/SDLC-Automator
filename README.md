@@ -2,7 +2,40 @@
 
 > **AI-powered sprint automation** — converts meeting transcripts into a complete suite of Atlassian artifacts in a single pipeline run.
 
-SDLC Autopilot listens to (or reads) your sprint planning meetings and automatically creates Jira Epics, Stories, Dev & QA Sub-tasks, Bitbucket feature branches, Pull Requests with AI-generated review checklists, Confluence technical solutioning documents, and sends stakeholder email drafts + Slack/Teams notifications — all without leaving the app.
+---
+
+## Quick Start (Run Locally)
+
+Follow these steps to run the ready-to-use version on your local machine.
+
+### 1. Prerequisites Ensure
+- **Node.js** 18 or later
+- **PostgreSQL** 14 or later (must be running on port 5432)
+
+### 2. Configure Environment Variables
+You should find a `.env` file included (or `.env.example`). If you need to configure it, ensure the following is filled out:
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sdlc_autopilot
+OPENROUTER_API_KEY=your_key_here
+```
+*(Update `DATABASE_URL` with your local Postgres username and password.)*
+
+### 3. Setup the Database
+Create the `sdlc_autopilot` database and populate the schema:
+```bash
+psql -U postgres -c "CREATE DATABASE sdlc_autopilot;"
+psql -U postgres -d sdlc_autopilot < schema.sql
+```
+*(Skip this step if your database is already set up)*
+
+### 4. Install Dependencies & Start
+Install both frontend and backend dependencies, then start the servers:
+```bash
+npm install
+npm run dev
+```
+
+The application will now be running at **http://localhost:5000**.
 
 ---
 
