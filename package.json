@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "PORT=8095 node server.js",
     "dev": "concurrently --names \"BACKEND,VITE\" --prefix-colors \"cyan,magenta\" \"node server.js\" \"vite\"",
     "backend": "node server.js",
     "vite": "vite",
