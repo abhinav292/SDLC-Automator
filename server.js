@@ -62,17 +62,57 @@ const simpleHash = (str) => {
 };
 
 // ─── AI MODEL CONFIGURATION ───────────────────────────────────────────────────
-// Preferences: process.env.AI_MODEL -> then falls back to gemini-2.0-flash
-const getAIModel = () => process.env.AI_MODEL || 'google/gemini-2.0-flash-001';
+// AI_PROVIDER: 'bedrock' (default) or 'openrouter'
+const getAIProvider = () => process.env.AI_PROVIDER || 'bedrock';
+const getAIModel = () => {
+  const provider = getAIProvider();
+  if (provider === 'bedrock') return process.env.AI_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0';
+  return process.env.AI_MODEL || 'google/gemini-2.0-flash-001';
+};
 
-// ─── SHARED AI CALL HELPER ────────────────────────────────────────────────────
+// Global variable for backward compatibility with existing calls
+const AI_MODEL = getAIModel();
 
-const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
-  const selectedModel = model || getAIModel();
-  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Missing AI API Key (OPENROUTER_API_KEY or OPENAI_API_KEY) in .env');
+// ─── SHARED AI CALL HELPER (supports Bedrock & OpenRouter) ───────────────────
+
+const callBedrockAI = async (modelId, messages, temperature) => {
+  const apiKey = process.env.BEDROCK_API_KEY;
+  if (!apiKey) throw new Error('Missing BEDROCK_API_KEY in .env');
+
+  const region = process.env.AWS_REGION || 'ap-south-1';
+  const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(modelId)}/invoke`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: 4096,
+      temperature,
+      messages
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Bedrock ${response.status}: ${errText.slice(0, 300)}`);
   }
+
+  const body = await response.json();
+  return {
+    choices: [{ message: { content: body.content?.[0]?.text || '' }, finish_reason: body.stop_reason === 'max_tokens' ? 'length' : 'stop' }],
+    usage: body.usage,
+    model: body.model || modelId
+  };
+};
+
+const callOpenRouterAI = async (modelId, messages, temperature) => {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY in .env');
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -82,13 +122,30 @@ const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
       'HTTP-Referer': 'https://sdlc-autopilot.replit.app',
       'X-Title': 'SDLC Autopilot'
     },
-    body: JSON.stringify({ model: selectedModel, messages, temperature, ...extraBody })
+    body: JSON.stringify({
+      model: modelId,
+      messages,
+      temperature,
+      max_tokens: 4096
+    })
   });
+
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`OpenRouter ${response.status}: ${errText.slice(0, 300)}`);
   }
-  return response.json();
+
+  return await response.json();
+};
+
+const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
+  const provider = getAIProvider();
+  const modelId = model || getAIModel();
+
+  if (provider === 'openrouter') {
+    return callOpenRouterAI(modelId, messages, temperature);
+  }
+  return callBedrockAI(modelId, messages, temperature);
 };
 
 // Parse a JSON array of stories from AI response content (with fallback recovery)
@@ -785,57 +842,61 @@ app.get('/health', async (_req, res) => {
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
 
 app.post('/update-env', (req, res) => {
-  const { atlassianToken, bitbucketToken, aiToken, aiModel } = req.body;
-  if (!atlassianToken && !bitbucketToken && !aiToken && !aiModel) {
+  const { atlassianToken, bitbucketToken, aiToken, aiModel, aiProvider, bedrockApiKey, awsRegion } = req.body;
+  if (!atlassianToken && !bitbucketToken && !aiToken && !aiModel && !aiProvider && !bedrockApiKey && !awsRegion) {
     return res.status(400).json({ error: 'No updates provided' });
   }
 
   try {
     const envPath = path.resolve(process.cwd(), '.env');
     let envContent = '';
-    
+
     if (fs.existsSync(envPath)) {
       envContent = fs.readFileSync(envPath, 'utf8');
     }
 
-    if (atlassianToken) {
-      if (envContent.includes('ATLASSIAN_API_TOKEN=')) {
-        envContent = envContent.replace(/ATLASSIAN_API_TOKEN=.*/, `ATLASSIAN_API_TOKEN=${atlassianToken}`);
+    const upsertEnv = (key, value) => {
+      const regex = new RegExp(`^${key}=.*`, 'm');
+      if (regex.test(envContent)) {
+        envContent = envContent.replace(regex, `${key}=${value}`);
       } else {
-        envContent += `\nATLASSIAN_API_TOKEN=${atlassianToken}`;
+        envContent += `\n${key}=${value}`;
       }
-    }
+    };
 
-    if (bitbucketToken) {
-      if (envContent.includes('BITBUCKET_API_TOKEN=')) {
-        envContent = envContent.replace(/BITBUCKET_API_TOKEN=.*/, `BITBUCKET_API_TOKEN=${bitbucketToken}`);
-      } else {
-        envContent += `\nBITBUCKET_API_TOKEN=${bitbucketToken}`;
-      }
-    }
-
-    if (aiToken) {
-      if (envContent.includes('OPENROUTER_API_KEY=')) {
-        envContent = envContent.replace(/OPENROUTER_API_KEY=.*/, `OPENROUTER_API_KEY=${aiToken}`);
-      } else {
-        envContent += `\nOPENROUTER_API_KEY=${aiToken}`;
-      }
-    }
-
-    if (aiModel) {
-      if (envContent.includes('AI_MODEL=')) {
-        envContent = envContent.replace(/AI_MODEL=.*/, `AI_MODEL=${aiModel}`);
-      } else {
-        envContent += `\nAI_MODEL=${aiModel}`;
-      }
-    }
+    if (atlassianToken) upsertEnv('ATLASSIAN_API_TOKEN', atlassianToken);
+    if (bitbucketToken) upsertEnv('BITBUCKET_API_TOKEN', bitbucketToken);
+    if (aiToken) upsertEnv('OPENROUTER_API_KEY', aiToken);
+    if (bedrockApiKey) upsertEnv('BEDROCK_API_KEY', bedrockApiKey);
+    if (awsRegion) upsertEnv('AWS_REGION', awsRegion);
+    if (aiModel) upsertEnv('AI_MODEL', aiModel);
+    if (aiProvider) upsertEnv('AI_PROVIDER', aiProvider);
 
     fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf8');
+
+    // Hot-reload changed env vars into the running process
+    if (aiToken) process.env.OPENROUTER_API_KEY = aiToken;
+    if (bedrockApiKey) process.env.BEDROCK_API_KEY = bedrockApiKey;
+    if (awsRegion) process.env.AWS_REGION = awsRegion;
+    if (aiModel) process.env.AI_MODEL = aiModel;
+    if (aiProvider) process.env.AI_PROVIDER = aiProvider;
+
     res.json({ success: true });
   } catch (err) {
     console.error('Failed to write .env file:', err);
     res.status(500).json({ error: 'Failed to update environment configuration' });
   }
+});
+
+// Return current AI configuration to the frontend
+app.get('/ai-config', (_req, res) => {
+  res.json({
+    provider: process.env.AI_PROVIDER || 'bedrock',
+    model: process.env.AI_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0',
+    region: process.env.AWS_REGION || 'ap-south-1',
+    hasBedrockKey: !!process.env.BEDROCK_API_KEY,
+    hasOpenRouterKey: !!process.env.OPENROUTER_API_KEY
+  });
 });
 
 app.get('/openrouter-models', async (req, res) => {
