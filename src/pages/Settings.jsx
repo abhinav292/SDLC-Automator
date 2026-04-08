@@ -62,12 +62,15 @@ export const Settings = () => {
     bitbucketDefaultBranch: settings.bbDefaultBranch || 'master',
     slackWebhookUrl: settings.slackWebhookUrl || '',
     projectName: settings.projectName || '',
-    aiModel: settings.aiModel || 'google/gemini-2.0-flash-001'
+    aiModel: settings.aiModel || 'anthropic.claude-3-sonnet-20240229-v1:0',
+    aiProvider: settings.aiProvider || 'bedrock',
+    awsRegion: settings.awsRegion || 'ap-south-1'
   });
   const [saved, setSaved] = useState(false);
   const [atlassianToken, setAtlassianToken] = useState('');
   const [bitbucketToken, setBitbucketToken] = useState('');
   const [aiToken, setAiToken] = useState('');
+  const [bedrockApiKey, setBedrockApiKey] = useState('');
 
   useEffect(() => {
     testConnections();
@@ -184,7 +187,7 @@ export const Settings = () => {
   const handleSave = async () => {
     saveSettings(form);
     
-    if (atlassianToken || bitbucketToken || aiToken || form.aiModel !== settings.aiModel) {
+    if (atlassianToken || bitbucketToken || aiToken || bedrockApiKey || form.aiModel !== settings.aiModel || form.aiProvider !== settings.aiProvider || form.awsRegion !== settings.awsRegion) {
       try {
         await fetch('/api/backend/update-env', {
           method: 'POST',
@@ -193,12 +196,16 @@ export const Settings = () => {
             atlassianToken: atlassianToken || undefined, 
             bitbucketToken: bitbucketToken || undefined,
             aiToken: aiToken || undefined,
-            aiModel: form.aiModel
+            bedrockApiKey: bedrockApiKey || undefined,
+            aiModel: form.aiModel,
+            aiProvider: form.aiProvider,
+            awsRegion: form.awsRegion
           })
         });
         setAtlassianToken('');
         setBitbucketToken('');
         setAiToken('');
+        setBedrockApiKey('');
       } catch (err) {
         console.error('Failed to update environment:', err);
       }
@@ -446,94 +453,151 @@ export const Settings = () => {
         </div>
 
         <div className="input-group">
-          <label className="input-label">OpenRouter / OpenAI API Key <Key size={12} className="ml-1 opacity-50" /></label>
-          <input 
-            type="password" 
-            className="input-field font-mono" 
-            placeholder="Type to replace AI token..."
-            value={aiToken}
-            onChange={e => setAiToken(e.target.value)}
-          />
-          <p className="input-hint">Used for all AI processing steps (Gemini, GPT, etc.).</p>
+          <label className="input-label">AI Provider</label>
+          <select 
+            className="input-field" 
+            value={form.aiProvider}
+            onChange={e => setForm(f => ({ ...f, aiProvider: e.target.value }))}
+          >
+            <option value="bedrock">Amazon Bedrock</option>
+            <option value="openrouter">OpenRouter</option>
+          </select>
         </div>
 
-        <div className="input-group">
-          <div className="flex items-center justify-between mb-3">
-            <label className="input-label mb-0">AI Model Selection & Search</label>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
+        {form.aiProvider === 'bedrock' ? (
+          <>
+            <div className="input-group">
+              <label className="input-label">Amazon Bedrock API Key <Key size={12} className="ml-1 opacity-50" /></label>
               <input 
-                type="checkbox" 
-                className="w-4 h-4 rounded border-white/10 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
-                checked={isManualModel}
-                onChange={e => setIsManualModel(e.target.checked)}
+                type="password" 
+                className="input-field font-mono" 
+                placeholder="Type to replace Bedrock API Key..."
+                value={bedrockApiKey}
+                onChange={e => setBedrockApiKey(e.target.value)}
               />
-              <span className="text-[10px] uppercase font-bold text-tertiary">Manual Entry Mode</span>
-            </label>
-          </div>
+              <p className="input-hint">Used for all AI processing steps via Amazon Bedrock.</p>
+            </div>
 
-          {!isManualModel && (
-            <div className="mb-3 relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none" />
+            <div className="input-group">
+              <label className="input-label">AWS Region</label>
               <input 
-                className="input-field pl-10 h-11 text-sm bg-white/5 border-white/10 hover:border-white/20 transition-all focus:border-indigo-500/50" 
-                placeholder="Search OpenRouter models (e.g. claude, gpt, llama)..."
-                value={modelSearch}
-                onChange={e => setModelSearch(e.target.value)}
+                className="input-field" 
+                placeholder="e.g. ap-south-1"
+                value={form.awsRegion}
+                onChange={e => setForm(f => ({ ...f, awsRegion: e.target.value }))}
               />
             </div>
-          )}
-          
-          <div className="flex gap-2">
-            {isManualModel ? (
-              <input 
-                className="input-field font-mono" 
-                placeholder="e.g. anthropic/claude-3.5-sonnet"
+
+            <div className="input-group">
+              <label className="input-label mb-0">AI Model Selection</label>
+              <select 
+                className="input-field mt-3" 
                 value={form.aiModel}
                 onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
+              >
+                <optgroup label="Amazon Bedrock Models">
+                  <option value="anthropic.claude-3-5-sonnet-20240620-v1:0">Claude 3.5 Sonnet</option>
+                  <option value="anthropic.claude-3-sonnet-20240229-v1:0">Claude 3 Sonnet</option>
+                  <option value="anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku</option>
+                  <option value="amazon.titan-text-express-v1">Amazon Titan</option>
+                </optgroup>
+              </select>
+              <p className="input-hint mt-2">Select the exact model ID from Bedrock.</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="input-group">
+              <label className="input-label">OpenRouter / OpenAI API Key <Key size={12} className="ml-1 opacity-50" /></label>
+              <input 
+                type="password" 
+                className="input-field font-mono" 
+                placeholder="Type to replace AI token..."
+                value={aiToken}
+                onChange={e => setAiToken(e.target.value)}
               />
-            ) : (
-              <>
-                <select 
-                  className="input-field" 
-                  value={form.aiModel}
-                  onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
-                >
-                  <optgroup label="Default & Common Platforms">
-                    <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash (Recommended)</option>
-                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                  </optgroup>
-                  
-                  <optgroup label={`Available Models (${availableModels.length} synchronized)`}>
-                    {(availableModels || [])
-                      .filter(m => {
-                        const q = modelSearch.toLowerCase();
-                        return m.id.toLowerCase().includes(q) || (m.name && m.name.toLowerCase().includes(q));
-                      })
-                      .map(m => (
-                        <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                      ))
-                    }
-                  </optgroup>
-                </select>
-                <button 
-                  className="btn btn-secondary text-xs px-4" 
-                  onClick={fetchOpenRouterModels}
-                  disabled={isSyncingModels}
-                  title="Refresh models from OpenRouter"
-                >
-                  <RefreshCw size={16} className={isSyncingModels ? 'animate-spin' : ''} />
-                </button>
-              </>
-            )}
-          </div>
-          <p className="input-hint">
-            {isManualModel 
-              ? "Type the exact model ID from OpenRouter's model list if it's not in the dropdown." 
-              : "Search through over 300+ models available via the OpenRouter API."
-            }
-          </p>
-        </div>
+              <p className="input-hint">Used for all AI processing steps (Gemini, GPT, etc.).</p>
+            </div>
+
+            <div className="input-group">
+              <div className="flex items-center justify-between mb-3">
+                <label className="input-label mb-0">AI Model Selection & Search</label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    className="w-4 h-4 rounded border-white/10 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
+                    checked={isManualModel}
+                    onChange={e => setIsManualModel(e.target.checked)}
+                  />
+                  <span className="text-[10px] uppercase font-bold text-tertiary">Manual Entry Mode</span>
+                </label>
+              </div>
+
+              {!isManualModel && (
+                <div className="mb-3 relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none" />
+                  <input 
+                    className="input-field pl-10 h-11 text-sm bg-white/5 border-white/10 hover:border-white/20 transition-all focus:border-indigo-500/50" 
+                    placeholder="Search OpenRouter models (e.g. claude, gpt, llama)..."
+                    value={modelSearch}
+                    onChange={e => setModelSearch(e.target.value)}
+                  />
+                </div>
+              )}
+              
+              <div className="flex gap-2">
+                {isManualModel ? (
+                  <input 
+                    className="input-field font-mono" 
+                    placeholder="e.g. anthropic/claude-3.5-sonnet"
+                    value={form.aiModel}
+                    onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
+                  />
+                ) : (
+                  <>
+                    <select 
+                      className="input-field" 
+                      value={form.aiModel}
+                      onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
+                    >
+                      <optgroup label="Default & Common Platforms">
+                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash (Recommended)</option>
+                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                      </optgroup>
+                      
+                      <optgroup label={`Available Models (${availableModels.length} synchronized)`}>
+                        {(availableModels || [])
+                          .filter(m => {
+                            const q = modelSearch.toLowerCase();
+                            return m.id.toLowerCase().includes(q) || (m.name && m.name.toLowerCase().includes(q));
+                          })
+                          .map(m => (
+                            <option key={m.id} value={m.id}>{m.name || m.id}</option>
+                          ))
+                        }
+                      </optgroup>
+                    </select>
+                    <button 
+                      className="btn btn-secondary text-xs px-4" 
+                      onClick={fetchOpenRouterModels}
+                      disabled={isSyncingModels}
+                      title="Refresh models from OpenRouter"
+                    >
+                      <RefreshCw size={16} className={isSyncingModels ? 'animate-spin' : ''} />
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className="input-hint">
+                {isManualModel 
+                  ? "Type the exact model ID from OpenRouter's model list if it's not in the dropdown." 
+                  : "Search through over 300+ models available via the OpenRouter API."
+                }
+              </p>
+            </div>
+          </>
+        )}
 
         <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-500/5">
           <div className="flex items-start gap-3">
