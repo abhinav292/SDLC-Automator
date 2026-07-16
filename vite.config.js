@@ -14,6 +14,13 @@ export default defineConfig(({ mode }) => {
     ? `Basic ${Buffer.from(`${env.ATLASSIAN_EMAIL}:${bitbucketToken}`).toString('base64')}`
     : '';
 
+  // GitHub & GitLab (each with its own token). Hosts are overridable for
+  // GitHub Enterprise / self-hosted GitLab.
+  const githubToken = env.GITHUB_TOKEN || '';
+  const githubApi = (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
+  const gitlabToken = env.GITLAB_TOKEN || '';
+  const gitlabHost = (env.GITLAB_HOST || 'https://gitlab.com').replace(/\/$/, '');
+
   const addAtlassianAuth = (proxy) => {
     proxy.on('proxyReq', (proxyReq) => {
       if (atlassianAuthHeader) proxyReq.setHeader('Authorization', atlassianAuthHeader);
@@ -34,6 +41,29 @@ export default defineConfig(({ mode }) => {
       proxyReq.removeHeader('Referer');
     });
     proxy.on('error', (err) => console.error('Bitbucket Proxy Error:', err));
+  };
+
+  const addGithubAuth = (proxy) => {
+    proxy.on('proxyReq', (proxyReq) => {
+      if (githubToken) proxyReq.setHeader('Authorization', `Bearer ${githubToken}`);
+      proxyReq.setHeader('Accept', 'application/vnd.github+json');
+      proxyReq.setHeader('X-GitHub-Api-Version', '2022-11-28');
+      proxyReq.setHeader('User-Agent', 'SDLC-Autopilot');
+      proxyReq.removeHeader('Origin');
+      proxyReq.removeHeader('Referer');
+    });
+    proxy.on('error', (err) => console.error('GitHub Proxy Error:', err));
+  };
+
+  const addGitlabAuth = (proxy) => {
+    proxy.on('proxyReq', (proxyReq) => {
+      if (gitlabToken) proxyReq.setHeader('Authorization', `Bearer ${gitlabToken}`);
+      proxyReq.setHeader('Accept', 'application/json');
+      proxyReq.setHeader('User-Agent', 'SDLC-Autopilot');
+      proxyReq.removeHeader('Origin');
+      proxyReq.removeHeader('Referer');
+    });
+    proxy.on('error', (err) => console.error('GitLab Proxy Error:', err));
   };
 
   return {
@@ -65,6 +95,18 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/bitbucket/, ''),
           configure: addBitbucketAuth
+        },
+        '/api/github': {
+          target: githubApi,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/github/, ''),
+          configure: addGithubAuth
+        },
+        '/api/gitlab': {
+          target: `${gitlabHost}/api/v4`,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/gitlab/, ''),
+          configure: addGitlabAuth
         }
       }
     },

@@ -36,6 +36,7 @@ export const Dashboard = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState('');
   const [backendOk, setBackendOk] = useState(null);
+  const [error, setError] = useState('');
 
   const mediaRecorderRef = useRef(null);
   const timerRef = useRef(null);
@@ -83,7 +84,7 @@ export const Dashboard = () => {
         recognitionRef.current = r;
       }
     } catch {
-      alert('Microphone access denied. Please allow microphone access in your browser settings.');
+      setError('Microphone access denied. Please allow microphone access in your browser settings.');
     }
   };
 
@@ -116,6 +117,7 @@ export const Dashboard = () => {
 
   const handleProcess = async () => {
     if (!hasInput) return;
+    setError('');
     setIsProcessing(true);
     let pipelineId = null;
     try {
@@ -155,8 +157,8 @@ export const Dashboard = () => {
 
       navigate('/prd');
     } catch (err) {
-      console.error('Extraction error:', err);
-      alert(`Extraction failed: ${err.message}`);
+      console.error('PRD generation error:', err);
+      setError(`Could not draft the PRD: ${err.message}`);
     } finally {
       setIsProcessing(false);
       setProcessingStep('');
@@ -178,6 +180,14 @@ export const Dashboard = () => {
           </div>
         )}
       </header>
+
+      {error && (
+        <div className="flex items-center gap-2 mb-4" style={{ padding: '0.7rem 1rem', fontSize: '0.85rem', color: '#fca5a5', background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.3)', borderRadius: 'var(--radius-lg)' }}>
+          <AlertCircle size={15} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{error}</span>
+          <button onClick={() => setError('')} className="file-remove-btn" aria-label="Dismiss">×</button>
+        </div>
+      )}
 
       <div className="stats-grid glass-panel">
         <div className="stat-item">

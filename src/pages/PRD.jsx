@@ -7,6 +7,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { generatePRDDoc } from '../services/prdService';
 import { extractStoriesFromFiles } from '../services/extractionService';
+import { PipelineSteps } from '../components/PipelineSteps';
 import './PRD.css';
 
 // ── Minimal, safe Markdown → HTML renderer ─────────────────────────────────────
@@ -153,6 +154,7 @@ export const PRD = () => {
 
   return (
     <div className="prd-page">
+      <PipelineSteps current="prd" />
       <header className="prd-header">
         <div>
           <h1 className="flex items-center gap-2">
