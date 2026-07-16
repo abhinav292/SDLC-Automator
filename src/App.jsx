@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
+import { PRD } from './pages/PRD';
 import { Review } from './pages/Review';
 import { Handoff } from './pages/Handoff';
 import { Settings } from './pages/Settings';
@@ -14,6 +15,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Dashboard />} />
+            <Route path="prd" element={<PRD />} />
             <Route path="review" element={<Review />} />
             <Route path="handoff" element={<Handoff />} />
             <Route path="settings" element={<Settings />} />

@@ -6,6 +6,8 @@ const AppContext = createContext(null);
 
 export const AppProvider = ({ children }) => {
   const [stories, setStories] = useState([]);
+  const [prd, setPrd] = useState('');
+  const [prdSource, setPrdSource] = useState('');
   const [currentPipelineId, setCurrentPipelineId] = useState(null);
   const [approvedStoryIds, setApprovedStoryIds] = useState(new Set());
   const [discardedStoryIds, setDiscardedStoryIds] = useState(new Set());
@@ -42,6 +44,24 @@ export const AppProvider = ({ children }) => {
       console.warn('Could not load pipeline history:', err.message);
     }
   }, []);
+
+  // Store a freshly generated PRD (and the source text it was derived from) at the
+  // start of a run. This is the editable checkpoint before Jira stories are generated.
+  const setPrdFromGeneration = async (prdText, sourceText, pipelineId) => {
+    setPrd(prdText);
+    setPrdSource(sourceText || '');
+    // Reset any downstream artifacts from a previous run
+    setStories([]);
+    setApprovedStoryIds(new Set());
+    setDiscardedStoryIds(new Set());
+    setJiraIssues({});
+    setBitbucketBranches({});
+    setConfluencePages([]);
+    if (pipelineId) {
+      setCurrentPipelineId(pipelineId);
+      try { await api.logEvent(pipelineId, 'prd_generated', { length: prdText.length }); } catch { /* non-fatal */ }
+    }
+  };
 
   const setStoriesFromExtraction = async (extractedStories, pipelineId) => {
     setStories(extractedStories);
@@ -114,6 +134,8 @@ export const AppProvider = ({ children }) => {
   return (
     <AppContext.Provider value={{
       stories, setStories,
+      prd, setPrd, prdSource,
+      setPrdFromGeneration,
       currentPipelineId, setCurrentPipelineId,
       approvedStoryIds, discardedStoryIds,
       pipelineStats, setPipelineStats,

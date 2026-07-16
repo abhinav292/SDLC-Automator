@@ -70,8 +70,7 @@ const getAIModel = () => {
   return process.env.AI_MODEL || 'google/gemini-2.0-flash-001';
 };
 
-// Global variable for backward compatibility with existing calls
-const AI_MODEL = getAIModel();
+// Global variable for backward compatibility removed to fix caching
 
 // ─── SHARED AI CALL HELPER (supports Bedrock & OpenRouter) ───────────────────
 
@@ -243,7 +242,7 @@ TRANSCRIPT:
   // Helper: run a single extraction AI call for one chunk of text
   const runExtractionCall = async (chunk) => {
     const fullPrompt = prompt + chunk;
-    const data = await callAI(AI_MODEL, [{ role: 'user', content: fullPrompt }], 0.3);
+    const data = await callAI(null, [{ role: 'user', content: fullPrompt }], 0.3);
     const rawContent = data.choices?.[0]?.message?.content || '';
     const finishReason = data.choices?.[0]?.finish_reason;
     console.log(`[extract] finish_reason=${finishReason} input_chars=${chunk.length} tokens=${JSON.stringify(data.usage)}`);
@@ -299,6 +298,80 @@ TRANSCRIPT:
     res.json(result);
   } catch (err) {
     console.error('Extraction error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PRD GENERATION ───────────────────────────────────────────────────────────
+// Turns raw transcripts / product notes into an editable Markdown PRD. This is the
+// checkpoint the user reviews & edits before we break the PRD down into Jira stories.
+
+app.post('/generate-prd', async (req, res) => {
+  const { text, projectName } = req.body;
+  if (!text) return res.status(400).json({ error: 'No text provided' });
+
+  // Reuse the same pre-processing the extractor uses (strip filler, dedupe, collapse ws)
+  const cleaned = cleanTranscriptForExtraction(text);
+  // A PRD prompt is small; keep the source bounded so we stay well within the token budget
+  const source = cleaned.slice(0, 24000);
+
+  const prompt = `You are a senior product manager. Write a clear, well-structured Product Requirements Document (PRD) in GitHub-flavored Markdown, based ONLY on the meeting transcript / product notes below.
+
+Use this exact section structure (keep the headings, in this order):
+
+# <Product or Feature Name>
+
+## 1. Overview
+A 2–4 sentence summary of what is being built and why.
+
+## 2. Problem Statement
+The user/business problem this solves.
+
+## 3. Goals & Objectives
+- Bullet list of concrete goals.
+
+## 4. Non-Goals
+- Bullet list of things explicitly out of scope.
+
+## 5. Target Users & Personas
+- The primary personas and their needs.
+
+## 6. User Stories
+- "As a <persona>, I want <action> so that <benefit>" — one bullet per story.
+
+## 7. Functional Requirements
+- Numbered list of specific, testable capabilities the system must have.
+
+## 8. Non-Functional Requirements
+- Performance, security, scalability, accessibility, compliance, etc.
+
+## 9. Success Metrics
+- How success will be measured.
+
+## 10. Risks & Assumptions
+- Known risks, dependencies, and assumptions.
+
+## 11. Open Questions
+- Anything ambiguous or still to be decided.
+
+RULES:
+1. Base every statement on the source content — do NOT invent unrelated features. If a section has no source material, write "- _To be determined._".
+2. Be specific enough that an engineer could later break the Functional Requirements and User Stories into Jira tickets.
+3. Use Markdown headings, bullet lists, and numbered lists exactly as shown. No tables.
+4. Return ONLY the Markdown document. No preamble, no explanation, no code fences.
+
+${projectName ? `Suggested product name: ${projectName}\n\n` : ''}SOURCE:
+${source}`;
+
+  try {
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.3);
+    let prd = data.choices?.[0]?.message?.content?.trim() || '';
+    // Strip any accidental code-fence wrapper
+    prd = prd.replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```$/, '').trim();
+    if (!prd) return res.status(422).json({ error: 'AI returned an empty PRD. Please add more detail and try again.' });
+    res.json({ prd, model: data.model, usage: data.usage });
+  } catch (err) {
+    console.error('PRD generation error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -386,7 +459,7 @@ RAW TRANSCRIPT:
 ${rawTranscript.slice(0, 8000)}`;
 
   try {
-    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.2);
     const cleaned = data.choices?.[0]?.message?.content?.trim() || rawTranscript;
     res.json({ cleaned, model: data.model, fallback: false });
   } catch (err) {
@@ -547,7 +620,7 @@ Each section should have 2-4 checkbox items relevant to this story.
 Return ONLY the markdown checklist. No preamble.`;
 
   try {
-    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.2);
     const checklist = data.choices?.[0]?.message?.content?.trim() || '';
     res.json({ checklist });
   } catch (err) {
@@ -590,7 +663,7 @@ BODY:
 [email body]`;
 
   try {
-    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.3);
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.3);
     const content = data.choices?.[0]?.message?.content?.trim() || '';
     const subjectMatch = content.match(/SUBJECT:\s*(.+)/i);
     const bodyMatch = content.match(/BODY:\s*([\s\S]+)/i);
@@ -691,7 +764,7 @@ Rules:
 Respond with ONLY a valid JSON object. No markdown wrapper, no explanation.`;
 
   try {
-    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.2);
 
     const content = data.choices?.[0]?.message?.content || '';
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -763,7 +836,7 @@ Start the document with: <h1>${projectName || 'Sprint'} – Technical Solutionin
 Respond with ONLY the HTML string. No markdown, no code fences, no explanation.`;
 
   try {
-    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.3);
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.3);
     const html = data.choices?.[0]?.message?.content?.trim() || '';
     res.json({ html });
   } catch (err) {
@@ -815,7 +888,7 @@ Rules:
 Respond with ONLY a valid JSON array. No markdown, no explanation.`;
 
   try {
-    const data = await callAI(AI_MODEL, [{ role: 'user', content: prompt }], 0.2);
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.2);
     const content = data.choices?.[0]?.message?.content || '';
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return res.status(500).json({ error: 'Could not parse AI response', raw: content });
