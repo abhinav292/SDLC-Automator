@@ -62,15 +62,18 @@ const simpleHash = (str) => {
 };
 
 // ─── AI MODEL CONFIGURATION ───────────────────────────────────────────────────
-// AI_PROVIDER: 'bedrock' (default) or 'openrouter'
-const getAIProvider = () => process.env.AI_PROVIDER || 'bedrock';
-const getAIModel = () => {
-  const provider = getAIProvider();
-  if (provider === 'bedrock') return process.env.AI_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0';
-  return process.env.AI_MODEL || 'google/gemini-2.0-flash-001';
+// AI_PROVIDER: 'bedrock' | 'openrouter' | 'anthropic' | 'openai' | 'gemini'
+const DEFAULT_MODELS = {
+  bedrock: 'anthropic.claude-3-sonnet-20240229-v1:0',
+  openrouter: 'google/gemini-2.0-flash-001',
+  anthropic: 'claude-3-5-sonnet-latest',
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-1.5-flash'
 };
 
-// Global variable for backward compatibility removed to fix caching
+const getAIProvider = () => process.env.AI_PROVIDER || 'bedrock';
+const getAIModel = () =>
+  process.env.AI_MODEL || DEFAULT_MODELS[getAIProvider()] || DEFAULT_MODELS.bedrock;
 
 // ─── SHARED AI CALL HELPER (supports Bedrock & OpenRouter) ───────────────────
 
@@ -137,14 +140,104 @@ const callOpenRouterAI = async (modelId, messages, temperature) => {
   return await response.json();
 };
 
-const callAI = async (model, messages, temperature = 0.3, extraBody = {}) => {
+// Anthropic (direct) — https://docs.anthropic.com/en/api/messages
+const callAnthropicAI = async (modelId, messages, temperature) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('Missing ANTHROPIC_API_KEY in .env');
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ model: modelId, max_tokens: 4096, temperature, messages })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Anthropic ${response.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const body = await response.json();
+  return {
+    choices: [{
+      message: { content: (body.content || []).map(c => c.text).join('') },
+      finish_reason: body.stop_reason === 'max_tokens' ? 'length' : 'stop'
+    }],
+    usage: body.usage,
+    model: body.model || modelId
+  };
+};
+
+// OpenAI (direct) — chat completions shape is already what the app expects
+const callOpenAIAI = async (modelId, messages, temperature) => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('Missing OPENAI_API_KEY in .env');
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelId, messages, temperature, max_tokens: 4096 })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI ${response.status}: ${errText.slice(0, 300)}`);
+  }
+
+  return await response.json();
+};
+
+// Google Gemini (direct) — generateContent
+const callGeminiAI = async (modelId, messages, temperature) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('Missing GEMINI_API_KEY in .env');
+
+  const contents = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }]
+  }));
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents, generationConfig: { temperature, maxOutputTokens: 4096 } })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini ${response.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const body = await response.json();
+  const candidate = body.candidates?.[0];
+  const text = (candidate?.content?.parts || []).map(p => p.text).join('');
+  return {
+    choices: [{
+      message: { content: text },
+      finish_reason: candidate?.finishReason === 'MAX_TOKENS' ? 'length' : 'stop'
+    }],
+    usage: body.usageMetadata,
+    model: modelId
+  };
+};
+
+const AI_PROVIDERS = {
+  openrouter: callOpenRouterAI,
+  anthropic: callAnthropicAI,
+  openai: callOpenAIAI,
+  gemini: callGeminiAI,
+  bedrock: callBedrockAI
+};
+
+const callAI = async (model, messages, temperature = 0.3) => {
   const provider = getAIProvider();
   const modelId = model || getAIModel();
-
-  if (provider === 'openrouter') {
-    return callOpenRouterAI(modelId, messages, temperature);
-  }
-  return callBedrockAI(modelId, messages, temperature);
+  const adapter = AI_PROVIDERS[provider] || callBedrockAI;
+  return adapter(modelId, messages, temperature);
 };
 
 // Parse a JSON array of stories from AI response content (with fallback recovery)
@@ -915,18 +1008,36 @@ app.get('/health', async (_req, res) => {
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
 
 app.post('/update-env', (req, res) => {
-  const { atlassianToken, bitbucketToken, aiToken, aiModel, aiProvider, bedrockApiKey, awsRegion } = req.body;
-  if (!atlassianToken && !bitbucketToken && !aiToken && !aiModel && !aiProvider && !bedrockApiKey && !awsRegion) {
+  const {
+    atlassianToken, bitbucketToken, aiToken, aiModel, aiProvider, bedrockApiKey, awsRegion,
+    anthropicKey, openaiKey, geminiKey, gitProvider, githubToken, gitlabToken
+  } = req.body;
+
+  // Map incoming field → .env key. Only truthy values are written.
+  const envMap = {
+    ATLASSIAN_API_TOKEN: atlassianToken,
+    BITBUCKET_API_TOKEN: bitbucketToken,
+    OPENROUTER_API_KEY: aiToken,
+    BEDROCK_API_KEY: bedrockApiKey,
+    ANTHROPIC_API_KEY: anthropicKey,
+    OPENAI_API_KEY: openaiKey,
+    GEMINI_API_KEY: geminiKey,
+    GITHUB_TOKEN: githubToken,
+    GITLAB_TOKEN: gitlabToken,
+    AWS_REGION: awsRegion,
+    AI_MODEL: aiModel,
+    AI_PROVIDER: aiProvider,
+    GIT_PROVIDER: gitProvider
+  };
+
+  const updates = Object.entries(envMap).filter(([, v]) => v !== undefined && v !== '' && v !== null);
+  if (updates.length === 0) {
     return res.status(400).json({ error: 'No updates provided' });
   }
 
   try {
     const envPath = path.resolve(process.cwd(), '.env');
-    let envContent = '';
-
-    if (fs.existsSync(envPath)) {
-      envContent = fs.readFileSync(envPath, 'utf8');
-    }
+    let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 
     const upsertEnv = (key, value) => {
       const regex = new RegExp(`^${key}=.*`, 'm');
@@ -937,23 +1048,12 @@ app.post('/update-env', (req, res) => {
       }
     };
 
-    if (atlassianToken) upsertEnv('ATLASSIAN_API_TOKEN', atlassianToken);
-    if (bitbucketToken) upsertEnv('BITBUCKET_API_TOKEN', bitbucketToken);
-    if (aiToken) upsertEnv('OPENROUTER_API_KEY', aiToken);
-    if (bedrockApiKey) upsertEnv('BEDROCK_API_KEY', bedrockApiKey);
-    if (awsRegion) upsertEnv('AWS_REGION', awsRegion);
-    if (aiModel) upsertEnv('AI_MODEL', aiModel);
-    if (aiProvider) upsertEnv('AI_PROVIDER', aiProvider);
+    for (const [key, value] of updates) {
+      upsertEnv(key, value);
+      process.env[key] = value; // hot-reload into the running process
+    }
 
     fs.writeFileSync(envPath, envContent.trim() + '\n', 'utf8');
-
-    // Hot-reload changed env vars into the running process
-    if (aiToken) process.env.OPENROUTER_API_KEY = aiToken;
-    if (bedrockApiKey) process.env.BEDROCK_API_KEY = bedrockApiKey;
-    if (awsRegion) process.env.AWS_REGION = awsRegion;
-    if (aiModel) process.env.AI_MODEL = aiModel;
-    if (aiProvider) process.env.AI_PROVIDER = aiProvider;
-
     res.json({ success: true });
   } catch (err) {
     console.error('Failed to write .env file:', err);
@@ -961,14 +1061,22 @@ app.post('/update-env', (req, res) => {
   }
 });
 
-// Return current AI configuration to the frontend
+// Return current AI + Git configuration to the frontend (never returns secret values,
+// only whether each key is present so the UI can show connection status).
 app.get('/ai-config', (_req, res) => {
   res.json({
     provider: process.env.AI_PROVIDER || 'bedrock',
-    model: process.env.AI_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0',
+    model: process.env.AI_MODEL || getAIModel(),
     region: process.env.AWS_REGION || 'ap-south-1',
+    gitProvider: process.env.GIT_PROVIDER || 'bitbucket',
     hasBedrockKey: !!process.env.BEDROCK_API_KEY,
-    hasOpenRouterKey: !!process.env.OPENROUTER_API_KEY
+    hasOpenRouterKey: !!process.env.OPENROUTER_API_KEY,
+    hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+    hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+    hasGeminiKey: !!process.env.GEMINI_API_KEY,
+    hasGithubToken: !!process.env.GITHUB_TOKEN,
+    hasGitlabToken: !!process.env.GITLAB_TOKEN,
+    hasBitbucketToken: !!process.env.BITBUCKET_API_TOKEN
   });
 });
 

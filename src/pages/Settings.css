@@ -198,3 +198,47 @@
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Provider selector chips (AI & Git tabs) ─────────────── */
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.provider-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.provider-chip:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.2));
+  color: var(--text-primary);
+}
+
+.provider-chip.active {
+  border-color: rgba(99, 102, 241, 0.6);
+  background: rgba(99, 102, 241, 0.12);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.25);
+}
+
+.provider-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+}

@@ -6,10 +6,71 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getJiraProjects, getJiraBaseUrl, getJiraVelocity } from '../services/jiraService';
-import { getConfluenceSpaces, getConfluenceBaseUrl } from '../services/confluenceService';
+import { getConfluenceSpaces } from '../services/confluenceService';
 import { getBitbucketWorkspaces, getBitbucketRepos, getBitbucketBranches } from '../services/bitbucketService';
+import { getGithubRepos, getGithubBranches } from '../services/githubService';
+import { getGitlabProjects, getGitlabBranches } from '../services/gitlabService';
 import { diagnoseJiraWrite } from '../services/apiService';
 import './Settings.css';
+
+// ── AI provider registry — drives the AI tab so adding a provider is a one-liner ──
+const AI_PROVIDER_CONFIG = {
+  openrouter: {
+    label: 'OpenRouter', keyField: 'aiToken', hasKeyFlag: 'hasOpenRouterKey',
+    placeholder: 'sk-or-...', searchable: true,
+    hint: 'One key, 300+ models across providers.',
+    models: [
+      { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash (Recommended)' },
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' },
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' }
+    ]
+  },
+  anthropic: {
+    label: 'Anthropic', keyField: 'anthropicKey', hasKeyFlag: 'hasAnthropicKey',
+    placeholder: 'sk-ant-...', hint: 'Direct Anthropic API (Claude models).',
+    models: [
+      { id: 'claude-3-5-sonnet-latest', name: 'Claude 3.5 Sonnet' },
+      { id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku' },
+      { id: 'claude-3-opus-latest', name: 'Claude 3 Opus' }
+    ]
+  },
+  openai: {
+    label: 'OpenAI', keyField: 'openaiKey', hasKeyFlag: 'hasOpenAIKey',
+    placeholder: 'sk-...', hint: 'Direct OpenAI API (GPT models).',
+    models: [
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+      { id: 'gpt-4o', name: 'GPT-4o' },
+      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+      { id: 'o1-mini', name: 'o1-mini' }
+    ]
+  },
+  gemini: {
+    label: 'Google Gemini', keyField: 'geminiKey', hasKeyFlag: 'hasGeminiKey',
+    placeholder: 'AIza...', hint: 'Direct Google AI Studio API (Gemini models).',
+    models: [
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' }
+    ]
+  },
+  bedrock: {
+    label: 'Amazon Bedrock', keyField: 'bedrockApiKey', hasKeyFlag: 'hasBedrockKey',
+    placeholder: 'Bedrock API key...', needsRegion: true,
+    hint: 'AWS-hosted models via Bedrock.',
+    models: [
+      { id: 'anthropic.claude-3-5-sonnet-20240620-v1:0', name: 'Claude 3.5 Sonnet' },
+      { id: 'anthropic.claude-3-sonnet-20240229-v1:0', name: 'Claude 3 Sonnet' },
+      { id: 'anthropic.claude-3-haiku-20240307-v1:0', name: 'Claude 3 Haiku' },
+      { id: 'amazon.titan-text-express-v1', name: 'Amazon Titan' }
+    ]
+  }
+};
+
+const GIT_PROVIDER_META = {
+  bitbucket: { label: 'Bitbucket', tokenHint: "Requires 'Pull requests' & 'Repositories' write scopes." },
+  github: { label: 'GitHub', tokenHint: "Fine-grained or classic PAT with 'repo' (Contents + Pull requests) scope." },
+  gitlab: { label: 'GitLab', tokenHint: "Personal access token with 'api' scope." }
+};
 
 const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
 const EMAIL = typeof __ATLASSIAN_EMAIL__ !== 'undefined' ? __ATLASSIAN_EMAIL__ : '';
@@ -56,10 +117,17 @@ export const Settings = () => {
   const [jiraDiagnosing, setJiraDiagnosing] = useState(false);
   const [jiraDiagResult, setJiraDiagResult] = useState(null);
   const [form, setForm] = useState({
+    // Git — provider + per-provider repo identity
+    gitProvider: settings.gitProvider || 'bitbucket',
     bbWorkspace: settings.bbWorkspace || '',
     bbRepo: settings.bbRepo || '',
+    bbDefaultBranch: settings.bbDefaultBranch || 'master',
+    ghOwner: settings.ghOwner || '',
+    ghRepo: settings.ghRepo || '',
+    ghDefaultBranch: settings.ghDefaultBranch || 'main',
+    glProject: settings.glProject || '',
+    glDefaultBranch: settings.glDefaultBranch || 'main',
     confluenceSpaceKey: settings.confluenceSpaceKey || '',
-    bitbucketDefaultBranch: settings.bbDefaultBranch || 'master',
     slackWebhookUrl: settings.slackWebhookUrl || '',
     projectName: settings.projectName || '',
     aiModel: settings.aiModel || 'anthropic.claude-3-sonnet-20240229-v1:0',
@@ -71,9 +139,45 @@ export const Settings = () => {
   const [bitbucketToken, setBitbucketToken] = useState('');
   const [aiToken, setAiToken] = useState('');
   const [bedrockApiKey, setBedrockApiKey] = useState('');
+  const [anthropicKey, setAnthropicKey] = useState('');
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
+  const [githubToken, setGithubToken] = useState('');
+  const [gitlabToken, setGitlabToken] = useState('');
+  const [aiConfig, setAiConfig] = useState(null);
+  // GitHub / GitLab repo discovery
+  const [ghRepos, setGhRepos] = useState([]);
+  const [glProjects, setGlProjects] = useState([]);
+  const [ghBranches, setGhBranches] = useState([]);
+  const [glBranches, setGlBranches] = useState([]);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState(null);
+
+  // Map an AI key field name → its state value/setter so the config map can drive the form
+  const aiKeyState = {
+    aiToken: [aiToken, setAiToken],
+    anthropicKey: [anthropicKey, setAnthropicKey],
+    openaiKey: [openaiKey, setOpenaiKey],
+    geminiKey: [geminiKey, setGeminiKey],
+    bedrockApiKey: [bedrockApiKey, setBedrockApiKey]
+  };
 
   useEffect(() => {
     testConnections();
+    // Load AI + Git config from the backend (key presence + current provider/model)
+    fetch('/api/backend/ai-config')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) return;
+        setAiConfig(cfg);
+        setForm(f => ({
+          ...f,
+          aiProvider: settings.aiProvider || cfg.provider || f.aiProvider,
+          aiModel: settings.aiModel || cfg.model || f.aiModel,
+          gitProvider: settings.gitProvider || cfg.gitProvider || f.gitProvider
+        }));
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -85,10 +189,38 @@ export const Settings = () => {
   }, [form.bbWorkspace, form.bbRepo]);
 
   useEffect(() => {
-    if (activeTab === 'ai' && availableModels.length === 0 && !isSyncingModels) {
+    if (activeTab === 'ai' && form.aiProvider === 'openrouter' && availableModels.length === 0 && !isSyncingModels) {
       fetchOpenRouterModels();
     }
-  }, [activeTab]);
+  }, [activeTab, form.aiProvider]);
+
+  const onAiProviderChange = (provider) => {
+    const cfg = AI_PROVIDER_CONFIG[provider];
+    setForm(f => ({ ...f, aiProvider: provider, aiModel: cfg?.models?.[0]?.id || f.aiModel }));
+  };
+
+  const loadGithubRepos = async () => {
+    setGitLoading(true); setGitError(null);
+    const { repos, error } = await getGithubRepos();
+    setGhRepos(repos || []);
+    if (error) setGitError(error);
+    setGitLoading(false);
+  };
+  const loadGithubBranchList = async () => {
+    if (!form.ghOwner || !form.ghRepo) return;
+    setGhBranches(await getGithubBranches(form.ghOwner, form.ghRepo));
+  };
+  const loadGitlabProjectList = async () => {
+    setGitLoading(true); setGitError(null);
+    const { projects, error } = await getGitlabProjects();
+    setGlProjects(projects || []);
+    if (error) setGitError(error);
+    setGitLoading(false);
+  };
+  const loadGitlabBranchList = async () => {
+    if (!form.glProject) return;
+    setGlBranches(await getGitlabBranches(form.glProject));
+  };
 
   const testConnections = () => {
     testJira();
@@ -186,29 +318,36 @@ export const Settings = () => {
 
   const handleSave = async () => {
     saveSettings(form);
-    
-    if (atlassianToken || bitbucketToken || aiToken || bedrockApiKey || form.aiModel !== settings.aiModel || form.aiProvider !== settings.aiProvider || form.awsRegion !== settings.awsRegion) {
-      try {
-        await fetch('/api/backend/update-env', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            atlassianToken: atlassianToken || undefined, 
-            bitbucketToken: bitbucketToken || undefined,
-            aiToken: aiToken || undefined,
-            bedrockApiKey: bedrockApiKey || undefined,
-            aiModel: form.aiModel,
-            aiProvider: form.aiProvider,
-            awsRegion: form.awsRegion
-          })
-        });
-        setAtlassianToken('');
-        setBitbucketToken('');
-        setAiToken('');
-        setBedrockApiKey('');
-      } catch (err) {
-        console.error('Failed to update environment:', err);
-      }
+
+    const payload = {
+      atlassianToken: atlassianToken || undefined,
+      bitbucketToken: bitbucketToken || undefined,
+      aiToken: aiToken || undefined,
+      bedrockApiKey: bedrockApiKey || undefined,
+      anthropicKey: anthropicKey || undefined,
+      openaiKey: openaiKey || undefined,
+      geminiKey: geminiKey || undefined,
+      githubToken: githubToken || undefined,
+      gitlabToken: gitlabToken || undefined,
+      aiModel: form.aiModel,
+      aiProvider: form.aiProvider,
+      awsRegion: form.awsRegion,
+      gitProvider: form.gitProvider
+    };
+
+    try {
+      await fetch('/api/backend/update-env', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      // Clear entered secrets from memory once persisted
+      setAtlassianToken(''); setBitbucketToken(''); setAiToken(''); setBedrockApiKey('');
+      setAnthropicKey(''); setOpenaiKey(''); setGeminiKey(''); setGithubToken(''); setGitlabToken('');
+      // Refresh the key-presence badges
+      fetch('/api/backend/ai-config').then(r => r.ok ? r.json() : null).then(cfg => cfg && setAiConfig(cfg)).catch(() => {});
+    } catch (err) {
+      console.error('Failed to update environment:', err);
     }
 
     setSaved(true);
@@ -332,285 +471,317 @@ export const Settings = () => {
     </div>
   );
 
-  const renderGit = () => (
-    <div className="settings-tab-content">
-      <div className="settings-section-header">
-        <h2>Bitbucket Config</h2>
-        <p>Configure where code and pull requests are pushed.</p>
-      </div>
+  const renderGit = () => {
+    const provider = form.gitProvider;
+    const meta = GIT_PROVIDER_META[provider] || GIT_PROVIDER_META.bitbucket;
+    const crWord = provider === 'gitlab' ? 'merge requests' : 'pull requests';
 
-      <div className="settings-card">
-        <div className="status-header">
-          <div className="flex items-center gap-3">
-            <GitBranch size={20} className="text-indigo-400" />
-            <h3 className="font-bold text-lg">Repository Settings</h3>
+    return (
+      <div className="settings-tab-content">
+        <div className="settings-section-header">
+          <h2>Source Control</h2>
+          <p>Where branches, commits, and {crWord} are created.</p>
+        </div>
+
+        <div className="settings-card">
+          <div className="status-header">
+            <div className="flex items-center gap-3">
+              <GitBranch size={20} className="text-indigo-400" />
+              <h3 className="font-bold text-lg">Git Provider</h3>
+            </div>
+            {provider === 'bitbucket' && <StatusBadge status={bitbucketStatus} />}
           </div>
-          <StatusBadge status={bitbucketStatus} />
-        </div>
 
-        <div className="input-group">
-          <label className="input-label">Bitbucket API Token <Key size={12} /></label>
-          <input 
-            type="password" 
-            className="input-field font-mono" 
-            placeholder="Type to replace Bitbucket token..."
-            value={bitbucketToken}
-            onChange={e => setBitbucketToken(e.target.value)}
-          />
-          <p className="input-hint">Requires 'Pull Request' and 'Repository' write scopes.</p>
-        </div>
+          {/* Provider selector */}
+          <div className="input-group">
+            <label className="input-label">Provider</label>
+            <div className="provider-grid">
+              {Object.entries(GIT_PROVIDER_META).map(([id, m]) => {
+                const connected = { bitbucket: aiConfig?.hasBitbucketToken, github: aiConfig?.hasGithubToken, gitlab: aiConfig?.hasGitlabToken }[id];
+                return (
+                  <button key={id} type="button" className={`provider-chip ${provider === id ? 'active' : ''}`} onClick={() => setForm(f => ({ ...f, gitProvider: id }))}>
+                    {connected && <span className="provider-chip-dot" />}
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-        <div className="grid grid-cols-2 gap-6 mb-6">
-          <div className="input-group mb-0">
-            <label className="input-label">Workspace</label>
-            {bbWorkspaces.length > 0 ? (
-              <select className="input-field" value={form.bbWorkspace} onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value, bbRepo: '' }))}>
-                <option value="">Select Workspace</option>
-                {bbWorkspaces.map(w => <option key={w.slug} value={w.slug}>{w.name || w.slug}</option>)}
-              </select>
-            ) : (
-              <input className="input-field" value={form.bbWorkspace} onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value }))} />
+          {/* Token */}
+          <div className="input-group">
+            <label className="input-label">{meta.label} Token <Key size={12} /></label>
+            {provider === 'bitbucket' && (
+              <input type="password" className="input-field font-mono" placeholder={aiConfig?.hasBitbucketToken ? '•••••••••• (set — type to replace)' : 'Bitbucket app password / token...'} value={bitbucketToken} onChange={e => setBitbucketToken(e.target.value)} />
             )}
-          </div>
-          <div className="input-group mb-0">
-            <label className="input-label">Repository</label>
-            {bbRepos.length > 0 ? (
-              <select
-                className="input-field"
-                value={form.bbRepo}
-                onChange={e => {
-                  const repoSlug = e.target.value;
-                  setForm(f => ({ ...f, bbRepo: repoSlug }));
-                  // Immediately check for mainbranch on the selected repo object
-                  const selected = bbRepos.find(r => r.slug === repoSlug);
-                  if (selected && selected.mainbranch?.name) {
-                    setForm(f => ({ ...f, bbDefaultBranch: selected.mainbranch.name }));
-                  }
-                }}
-              >
-                <option value="">Select Repository</option>
-                {bbRepos.map(r => (
-                  <option key={r.slug} value={r.slug}>{r.name || r.slug}</option>
-                ))}
-              </select>
-            ) : (
-              <input className="input-field" value={form.bbRepo} onChange={e => setForm(f => ({ ...f, bbRepo: e.target.value }))} />
+            {provider === 'github' && (
+              <input type="password" className="input-field font-mono" placeholder={aiConfig?.hasGithubToken ? '•••••••••• (set — type to replace)' : 'ghp_... / github_pat_...'} value={githubToken} onChange={e => setGithubToken(e.target.value)} />
             )}
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <label className="input-label">
-            Default Branch
-            {loadingBranches && <Loader2 size={10} className="animate-spin ml-2 inline" />}
-          </label>
-          <div className="flex gap-2">
-            {bbBranches.length > 0 ? (
-              <select
-                className="input-field max-w-[200px]"
-                value={form.bbDefaultBranch}
-                onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))}
-              >
-                <option value="">Select branch...</option>
-                {bbBranches.map(b => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className="input-field max-w-[200px]"
-                placeholder="master"
-                value={form.bbDefaultBranch}
-                onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))}
-              />
+            {provider === 'gitlab' && (
+              <input type="password" className="input-field font-mono" placeholder={aiConfig?.hasGitlabToken ? '•••••••••• (set — type to replace)' : 'glpat-...'} value={gitlabToken} onChange={e => setGitlabToken(e.target.value)} />
             )}
-            <button
-              className="btn btn-secondary text-xs px-2 py-1"
-              title="Refresh branches"
-              onClick={() => loadBbBranches(form.bbWorkspace, form.bbRepo)}
-              disabled={!form.bbWorkspace || !form.bbRepo || loadingBranches}
-            >
-              <RefreshCw size={12} className={loadingBranches ? 'animate-spin' : ''} />
-            </button>
+            <p className="input-hint">{meta.tokenHint}</p>
           </div>
-          <p className="input-hint">Feature branches will be cut from this branch.</p>
-        </div>
-      </div>
-    </div>
-  );
 
-  const renderAI = () => (
-    <div className="settings-tab-content">
-      <div className="settings-section-header">
-        <h2>AI Engine</h2>
-        <p>Configure the intelligence layer for story extraction and code generation.</p>
-      </div>
+          {gitError && <p className="input-hint" style={{ color: 'var(--color-error)' }}>{gitError}</p>}
 
-      <div className="settings-card border-indigo-500/20 bg-indigo-500/[0.02]">
-        <div className="flex items-center gap-3 mb-6">
-          <Cpu size={24} className="text-indigo-400" />
-          <h3 className="font-bold text-lg">Model Configuration</h3>
-        </div>
-
-        <div className="input-group">
-          <label className="input-label">AI Provider</label>
-          <select 
-            className="input-field" 
-            value={form.aiProvider}
-            onChange={e => setForm(f => ({ ...f, aiProvider: e.target.value }))}
-          >
-            <option value="bedrock">Amazon Bedrock</option>
-            <option value="openrouter">OpenRouter</option>
-          </select>
-        </div>
-
-        {form.aiProvider === 'bedrock' ? (
-          <>
-            <div className="input-group">
-              <label className="input-label">Amazon Bedrock API Key <Key size={12} className="ml-1 opacity-50" /></label>
-              <input 
-                type="password" 
-                className="input-field font-mono" 
-                placeholder="Type to replace Bedrock API Key..."
-                value={bedrockApiKey}
-                onChange={e => setBedrockApiKey(e.target.value)}
-              />
-              <p className="input-hint">Used for all AI processing steps via Amazon Bedrock.</p>
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">AWS Region</label>
-              <input 
-                className="input-field" 
-                placeholder="e.g. ap-south-1"
-                value={form.awsRegion}
-                onChange={e => setForm(f => ({ ...f, awsRegion: e.target.value }))}
-              />
-            </div>
-
-            <div className="input-group">
-              <label className="input-label mb-0">AI Model Selection</label>
-              <select 
-                className="input-field mt-3" 
-                value={form.aiModel}
-                onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
-              >
-                <optgroup label="Amazon Bedrock Models">
-                  <option value="anthropic.claude-3-5-sonnet-20240620-v1:0">Claude 3.5 Sonnet</option>
-                  <option value="anthropic.claude-3-sonnet-20240229-v1:0">Claude 3 Sonnet</option>
-                  <option value="anthropic.claude-3-haiku-20240307-v1:0">Claude 3 Haiku</option>
-                  <option value="amazon.titan-text-express-v1">Amazon Titan</option>
-                </optgroup>
-              </select>
-              <p className="input-hint mt-2">Select the exact model ID from Bedrock.</p>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="input-group">
-              <label className="input-label">OpenRouter / OpenAI API Key <Key size={12} className="ml-1 opacity-50" /></label>
-              <input 
-                type="password" 
-                className="input-field font-mono" 
-                placeholder="Type to replace AI token..."
-                value={aiToken}
-                onChange={e => setAiToken(e.target.value)}
-              />
-              <p className="input-hint">Used for all AI processing steps (Gemini, GPT, etc.).</p>
-            </div>
-
-            <div className="input-group">
-              <div className="flex items-center justify-between mb-3">
-                <label className="input-label mb-0">AI Model Selection & Search</label>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input 
-                    type="checkbox" 
-                    className="w-4 h-4 rounded border-white/10 bg-white/5 text-indigo-500 focus:ring-indigo-500/50"
-                    checked={isManualModel}
-                    onChange={e => setIsManualModel(e.target.checked)}
-                  />
-                  <span className="text-[10px] uppercase font-bold text-tertiary">Manual Entry Mode</span>
-                </label>
-              </div>
-
-              {!isManualModel && (
-                <div className="mb-3 relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none" />
-                  <input 
-                    className="input-field pl-10 h-11 text-sm bg-white/5 border-white/10 hover:border-white/20 transition-all focus:border-indigo-500/50" 
-                    placeholder="Search OpenRouter models (e.g. claude, gpt, llama)..."
-                    value={modelSearch}
-                    onChange={e => setModelSearch(e.target.value)}
-                  />
-                </div>
-              )}
-              
-              <div className="flex gap-2">
-                {isManualModel ? (
-                  <input 
-                    className="input-field font-mono" 
-                    placeholder="e.g. anthropic/claude-3.5-sonnet"
-                    value={form.aiModel}
-                    onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
-                  />
-                ) : (
-                  <>
-                    <select 
-                      className="input-field" 
-                      value={form.aiModel}
-                      onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}
-                    >
-                      <optgroup label="Default & Common Platforms">
-                        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash (Recommended)</option>
-                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                        <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                      </optgroup>
-                      
-                      <optgroup label={`Available Models (${availableModels.length} synchronized)`}>
-                        {(availableModels || [])
-                          .filter(m => {
-                            const q = modelSearch.toLowerCase();
-                            return m.id.toLowerCase().includes(q) || (m.name && m.name.toLowerCase().includes(q));
-                          })
-                          .map(m => (
-                            <option key={m.id} value={m.id}>{m.name || m.id}</option>
-                          ))
-                        }
-                      </optgroup>
+          {/* ── Bitbucket repo identity ── */}
+          {provider === 'bitbucket' && (
+            <>
+              <div className="grid grid-cols-2 gap-6 mb-4">
+                <div className="input-group mb-0">
+                  <label className="input-label">Workspace</label>
+                  {bbWorkspaces.length > 0 ? (
+                    <select className="input-field" value={form.bbWorkspace} onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value, bbRepo: '' }))}>
+                      <option value="">Select Workspace</option>
+                      {bbWorkspaces.map(w => <option key={w.slug} value={w.slug}>{w.name || w.slug}</option>)}
                     </select>
-                    <button 
-                      className="btn btn-secondary text-xs px-4" 
-                      onClick={fetchOpenRouterModels}
-                      disabled={isSyncingModels}
-                      title="Refresh models from OpenRouter"
-                    >
-                      <RefreshCw size={16} className={isSyncingModels ? 'animate-spin' : ''} />
-                    </button>
-                  </>
+                  ) : (
+                    <input className="input-field" value={form.bbWorkspace} onChange={e => setForm(f => ({ ...f, bbWorkspace: e.target.value }))} />
+                  )}
+                </div>
+                <div className="input-group mb-0">
+                  <label className="input-label">Repository</label>
+                  {bbRepos.length > 0 ? (
+                    <select className="input-field" value={form.bbRepo} onChange={e => {
+                      const repoSlug = e.target.value;
+                      setForm(f => ({ ...f, bbRepo: repoSlug }));
+                      const selected = bbRepos.find(r => r.slug === repoSlug);
+                      if (selected?.mainbranch?.name) setForm(f => ({ ...f, bbDefaultBranch: selected.mainbranch.name }));
+                    }}>
+                      <option value="">Select Repository</option>
+                      {bbRepos.map(r => <option key={r.slug} value={r.slug}>{r.name || r.slug}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input-field" value={form.bbRepo} onChange={e => setForm(f => ({ ...f, bbRepo: e.target.value }))} />
+                  )}
+                </div>
+              </div>
+              <div className="input-group">
+                <label className="input-label">Default Branch {loadingBranches && <Loader2 size={10} className="animate-spin ml-2 inline" />}</label>
+                <div className="flex gap-2">
+                  {bbBranches.length > 0 ? (
+                    <select className="input-field max-w-[220px]" value={form.bbDefaultBranch} onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))}>
+                      <option value="">Select branch...</option>
+                      {bbBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input-field max-w-[220px]" placeholder="master" value={form.bbDefaultBranch} onChange={e => setForm(f => ({ ...f, bbDefaultBranch: e.target.value }))} />
+                  )}
+                  <button className="btn btn-secondary text-xs px-2 py-1" title="Refresh branches" onClick={() => loadBbBranches(form.bbWorkspace, form.bbRepo)} disabled={!form.bbWorkspace || !form.bbRepo || loadingBranches}>
+                    <RefreshCw size={12} className={loadingBranches ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+                <p className="input-hint">Feature branches will be cut from this branch.</p>
+              </div>
+            </>
+          )}
+
+          {/* ── GitHub repo identity ── */}
+          {provider === 'github' && (
+            <>
+              <div className="grid grid-cols-2 gap-6 mb-3">
+                <div className="input-group mb-0">
+                  <label className="input-label">Owner / Org</label>
+                  <input className="input-field" placeholder="e.g. acme-inc" value={form.ghOwner} onChange={e => setForm(f => ({ ...f, ghOwner: e.target.value }))} />
+                </div>
+                <div className="input-group mb-0">
+                  <label className="input-label">Repository</label>
+                  <input className="input-field" placeholder="e.g. web-app" value={form.ghRepo} onChange={e => setForm(f => ({ ...f, ghRepo: e.target.value }))} />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mb-4">
+                <button className="btn btn-secondary text-xs px-3 py-1.5" onClick={loadGithubRepos} disabled={gitLoading}>
+                  {gitLoading ? <Loader2 size={13} className="animate-spin mr-1" /> : <RefreshCw size={13} className="mr-1" />} Load repositories
+                </button>
+                {ghRepos.length > 0 && (
+                  <select className="input-field flex-1" value={form.ghOwner && form.ghRepo ? `${form.ghOwner}/${form.ghRepo}` : ''} onChange={e => {
+                    const r = ghRepos.find(x => `${x.owner}/${x.name}` === e.target.value);
+                    if (r) setForm(f => ({ ...f, ghOwner: r.owner, ghRepo: r.name, ghDefaultBranch: r.defaultBranch || f.ghDefaultBranch }));
+                  }}>
+                    <option value="">Select a repository…</option>
+                    {ghRepos.map(r => <option key={r.fullName} value={`${r.owner}/${r.name}`}>{r.fullName}</option>)}
+                  </select>
                 )}
               </div>
-              <p className="input-hint">
-                {isManualModel 
-                  ? "Type the exact model ID from OpenRouter's model list if it's not in the dropdown." 
-                  : "Search through over 300+ models available via the OpenRouter API."
-                }
-              </p>
-            </div>
-          </>
-        )}
+              <div className="input-group">
+                <label className="input-label">Default Branch</label>
+                <div className="flex gap-2">
+                  {ghBranches.length > 0 ? (
+                    <select className="input-field max-w-[220px]" value={form.ghDefaultBranch} onChange={e => setForm(f => ({ ...f, ghDefaultBranch: e.target.value }))}>
+                      {ghBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input-field max-w-[220px]" placeholder="main" value={form.ghDefaultBranch} onChange={e => setForm(f => ({ ...f, ghDefaultBranch: e.target.value }))} />
+                  )}
+                  <button className="btn btn-secondary text-xs px-2 py-1" title="Load branches" onClick={loadGithubBranchList} disabled={!form.ghOwner || !form.ghRepo}><RefreshCw size={12} /></button>
+                </div>
+                <p className="input-hint">Feature branches will be cut from this branch.</p>
+              </div>
+            </>
+          )}
 
-        <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-500/5">
-          <div className="flex items-start gap-3">
-            <ShieldCheck size={18} className="text-indigo-400 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-indigo-200">Current Model: {form.aiModel}</p>
-              <p className="text-xs text-tertiary mt-1">High-speed reasoning model optimized for repo analysis and code scaffolding.</p>
+          {/* ── GitLab repo identity ── */}
+          {provider === 'gitlab' && (
+            <>
+              <div className="input-group">
+                <label className="input-label">Project (ID or path)</label>
+                <input className="input-field" placeholder="e.g. 12345678 or group/subgroup/project" value={form.glProject} onChange={e => setForm(f => ({ ...f, glProject: e.target.value }))} />
+                <p className="input-hint">Numeric project ID or the full namespace path.</p>
+              </div>
+              <div className="flex items-center gap-2 mb-4">
+                <button className="btn btn-secondary text-xs px-3 py-1.5" onClick={loadGitlabProjectList} disabled={gitLoading}>
+                  {gitLoading ? <Loader2 size={13} className="animate-spin mr-1" /> : <RefreshCw size={13} className="mr-1" />} Load projects
+                </button>
+                {glProjects.length > 0 && (
+                  <select className="input-field flex-1" value={String(form.glProject)} onChange={e => {
+                    const p = glProjects.find(x => String(x.id) === e.target.value);
+                    if (p) setForm(f => ({ ...f, glProject: String(p.id), glDefaultBranch: p.defaultBranch || f.glDefaultBranch }));
+                  }}>
+                    <option value="">Select a project…</option>
+                    {glProjects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                  </select>
+                )}
+              </div>
+              <div className="input-group">
+                <label className="input-label">Default Branch</label>
+                <div className="flex gap-2">
+                  {glBranches.length > 0 ? (
+                    <select className="input-field max-w-[220px]" value={form.glDefaultBranch} onChange={e => setForm(f => ({ ...f, glDefaultBranch: e.target.value }))}>
+                      {glBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input-field max-w-[220px]" placeholder="main" value={form.glDefaultBranch} onChange={e => setForm(f => ({ ...f, glDefaultBranch: e.target.value }))} />
+                  )}
+                  <button className="btn btn-secondary text-xs px-2 py-1" title="Load branches" onClick={loadGitlabBranchList} disabled={!form.glProject}><RefreshCw size={12} /></button>
+                </div>
+                <p className="input-hint">Feature branches will be cut from this branch.</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAI = () => {
+    const cfg = AI_PROVIDER_CONFIG[form.aiProvider] || AI_PROVIDER_CONFIG.bedrock;
+    const [keyVal, setKeyVal] = aiKeyState[cfg.keyField] || [];
+    const hasKey = aiConfig?.[cfg.hasKeyFlag];
+
+    return (
+      <div className="settings-tab-content">
+        <div className="settings-section-header">
+          <h2>AI Engine</h2>
+          <p>Choose a provider and model for story extraction, PRD drafting, QA, and code generation.</p>
+        </div>
+
+        <div className="settings-card border-indigo-500/20 bg-indigo-500/[0.02]">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <Cpu size={24} className="text-indigo-400" />
+              <h3 className="font-bold text-lg">Model Configuration</h3>
+            </div>
+            {hasKey !== undefined && <StatusBadge status={hasKey ? 'ok' : 'idle'} label={hasKey ? 'Key set' : 'No key'} />}
+          </div>
+
+          {/* Provider selector */}
+          <div className="input-group">
+            <label className="input-label">AI Provider</label>
+            <div className="provider-grid">
+              {Object.entries(AI_PROVIDER_CONFIG).map(([id, p]) => (
+                <button key={id} type="button" className={`provider-chip ${form.aiProvider === id ? 'active' : ''}`} onClick={() => onAiProviderChange(id)}>
+                  {aiConfig?.[p.hasKeyFlag] && <span className="provider-chip-dot" />}
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <p className="input-hint">{cfg.hint}</p>
+          </div>
+
+          {/* API key */}
+          <div className="input-group">
+            <label className="input-label">{cfg.label} API Key <Key size={12} className="ml-1 opacity-50" /></label>
+            <input
+              type="password"
+              className="input-field font-mono"
+              placeholder={hasKey ? '•••••••••• (set — type to replace)' : cfg.placeholder}
+              value={keyVal || ''}
+              onChange={e => setKeyVal?.(e.target.value)}
+            />
+            <p className="input-hint">Stored server-side in .env — used for all AI processing.</p>
+          </div>
+
+          {/* Region (Bedrock only) */}
+          {cfg.needsRegion && (
+            <div className="input-group">
+              <label className="input-label">AWS Region</label>
+              <input className="input-field" placeholder="e.g. ap-south-1" value={form.awsRegion} onChange={e => setForm(f => ({ ...f, awsRegion: e.target.value }))} />
+            </div>
+          )}
+
+          {/* Model selection */}
+          <div className="input-group">
+            <div className="flex items-center justify-between mb-1">
+              <label className="input-label mb-0">Model</label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" className="w-4 h-4" checked={isManualModel} onChange={e => setIsManualModel(e.target.checked)} />
+                <span className="text-[10px] uppercase font-bold text-tertiary">Custom model ID</span>
+              </label>
+            </div>
+
+            {isManualModel ? (
+              <input className="input-field font-mono mt-2" placeholder="exact model id" value={form.aiModel} onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))} />
+            ) : cfg.searchable ? (
+              <>
+                <div className="flex items-center gap-2 mt-2 mb-3">
+                  <div className="relative flex-1">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tertiary pointer-events-none" />
+                    <input className="input-field pl-10" placeholder="Search models (claude, gpt, llama)..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} />
+                  </div>
+                  <button className="btn btn-secondary text-xs px-3" onClick={fetchOpenRouterModels} disabled={isSyncingModels} title="Sync models from OpenRouter">
+                    <RefreshCw size={16} className={isSyncingModels ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+                <select className="input-field" value={form.aiModel} onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}>
+                  <optgroup label="Common">
+                    {cfg.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </optgroup>
+                  {availableModels.length > 0 && (
+                    <optgroup label={`Synced (${availableModels.length})`}>
+                      {availableModels
+                        .filter(m => { const q = modelSearch.toLowerCase(); return m.id.toLowerCase().includes(q) || (m.name && m.name.toLowerCase().includes(q)); })
+                        .map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                    </optgroup>
+                  )}
+                </select>
+                {syncStatus && syncStatus !== 'ok' && <p className="input-hint" style={{ color: 'var(--color-error)' }}>{syncStatus}</p>}
+              </>
+            ) : (
+              <select className="input-field mt-2" value={form.aiModel} onChange={e => setForm(f => ({ ...f, aiModel: e.target.value }))}>
+                <optgroup label={`${cfg.label} Models`}>
+                  {cfg.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </optgroup>
+                {!cfg.models.some(m => m.id === form.aiModel) && form.aiModel && (
+                  <optgroup label="Current"><option value={form.aiModel}>{form.aiModel}</option></optgroup>
+                )}
+              </select>
+            )}
+          </div>
+
+          <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-500/5">
+            <div className="flex items-start gap-3">
+              <ShieldCheck size={18} className="text-indigo-400 flex-shrink-0 mt-0.5" />
+              <div style={{ minWidth: 0 }}>
+                <p className="text-sm font-semibold text-indigo-200 truncate">{cfg.label} · {form.aiModel}</p>
+                <p className="text-xs text-tertiary mt-1">Handles extraction, PRD drafting, QA test cases, and code scaffolding.</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderAdvanced = () => (
     <div className="settings-tab-content">

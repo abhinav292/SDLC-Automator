@@ -1,0 +1,90 @@
+.pipeline-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: var(--spacing-5, 1.25rem);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
+.pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.7rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  color: var(--text-tertiary);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: default;
+  transition: all 0.15s ease;
+}
+
+.pipeline-step.clickable { cursor: pointer; }
+.pipeline-step.clickable:hover { background: rgba(255, 255, 255, 0.04); }
+
+.pipeline-step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-subtle);
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.pipeline-step-label {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.pipeline-step-index {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* ── States ──────────────────────────────────────────── */
+.pipeline-step.current { color: var(--text-primary); }
+.pipeline-step.current .pipeline-step-marker {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+}
+
+.pipeline-step.done { color: var(--text-secondary); }
+.pipeline-step.done .pipeline-step-marker {
+  border-color: var(--color-success);
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--color-success);
+}
+
+.pipeline-step.upcoming .pipeline-step-marker { opacity: 0.7; }
+
+/* ── Connector ───────────────────────────────────────── */
+.pipeline-connector {
+  flex: 1;
+  min-width: 1.25rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+}
+.pipeline-connector.done { background: var(--color-success); opacity: 0.6; }
+
+@media (max-width: 640px) {
+  .pipeline-step-index { display: none; }
+  .pipeline-step-label { font-size: 0.78rem; }
+}

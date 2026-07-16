@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Link, FileText, CheckSquare, GitBranch, Send,
-  AlertTriangle, ExternalLink, ArrowRight, Copy, Mail, GitPullRequest, X, Code2
+  AlertTriangle, ExternalLink, ArrowRight, Copy, Mail, GitPullRequest, X, Code2, Rocket
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { createJiraEpic, createJiraStory, createJiraSubTask, createJiraQASubTask, linkJiraIssues, getJiraBaseUrl, resetJiraProjectStyleCache } from '../services/jiraService';
-import { createBitbucketBranch, createBitbucketPR, getBitbucketBranchName, commitFilesToBitbucket } from '../services/bitbucketService';
-import { createConfluencePage, getConfluenceBaseUrl } from '../services/confluenceService';
+import { PipelineSteps } from '../components/PipelineSteps';
+import { createJiraEpic, createJiraStory, createJiraSubTask, createJiraQASubTask, linkJiraIssues, resetJiraProjectStyleCache } from '../services/jiraService';
+import {
+  createGitBranch, createGitPR, getGitBranchName, commitGitFiles, fetchGitRepoContext,
+  isGitConfigured, getGitProvider, getGitProviderLabel, getGitRepoLabel, getGitDefaultBranch, getChangeRequestLabel
+} from '../services/gitService';
+import { createConfluencePage } from '../services/confluenceService';
 import { generatePRChecklist, generateStakeholderEmail, notifySlack, generateQATasks, generateCode, generateSolutioningDoc } from '../services/apiService';
-import { fetchRepoContext } from '../services/bitbucketService';
 import './Handoff.css';
 
 const SyncPhase = ({ label, status }) => (
@@ -24,6 +27,18 @@ const SyncPhase = ({ label, status }) => (
     {status === 'error' && <AlertTriangle size={18} style={{ color: 'var(--color-error)', flexShrink: 0 }} />}
     {status === 'waiting' && <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid var(--border-subtle)', flexShrink: 0 }} />}
     <span className="text-sm font-medium">{label}</span>
+  </div>
+);
+
+const PublishTarget = ({ ready, label, detail, readyText }) => (
+  <div className="flex items-center justify-between p-3 border border-subtle bg-surface-elevated rounded-lg">
+    <div className="flex items-center gap-2 min-w-0">
+      {ready
+        ? <CheckCircle size={15} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
+        : <AlertTriangle size={15} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />}
+      <span className="text-sm font-medium">{label}</span>
+    </div>
+    <span className="text-xs text-secondary truncate ml-3">{ready ? (readyText || detail) : detail}</span>
   </div>
 );
 
@@ -72,7 +87,9 @@ const EmailModal = ({ emailContent, onClose }) => {
 export const Handoff = () => {
   const navigate = useNavigate();
   const { stories, approvedStoryIds, settings, setJiraIssues, setBitbucketBranches, setConfluencePages, setPipelineStats, completePipeline } = useApp();
-  const [phase, setPhase] = useState('idle');
+  // 'confirm' → user must explicitly start; 'running' → in progress; 'done' → finished.
+  // Publishing creates real Jira/Bitbucket/Confluence artifacts, so we never auto-run.
+  const [phase, setPhase] = useState('confirm');
   const [jiraResults, setJiraResults] = useState({});
   const [branchResults, setBranchResults] = useState({});
   const [prResults, setPrResults] = useState({});
@@ -96,12 +113,10 @@ export const Handoff = () => {
   const [errors, setErrors] = useState([]);
 
   const approvedStories = stories.filter(s => approvedStoryIds.has(s.id));
-
-  useEffect(() => {
-    if (approvedStories.length > 0) {
-      runSync();
-    }
-  }, []);
+  const gitProviderLabel = getGitProviderLabel(getGitProvider(settings));
+  const changeRequestLabel = getChangeRequestLabel(settings);
+  const crShort = changeRequestLabel === 'Merge Request' ? 'MR' : 'PR';
+  const gitConfigured = isGitConfigured(settings);
 
   const setPhaseStatus = (phaseName, status) =>
     setPhaseStatuses(prev => ({ ...prev, [phaseName]: status }));
@@ -113,12 +128,13 @@ export const Handoff = () => {
     // Reset per-run caches so fresh settings are always picked up
     resetJiraProjectStyleCache();
 
+    const gitLabel = getGitProviderLabel(getGitProvider(settings));
+    const changeReqLabel = getChangeRequestLabel(settings);
+    const gitReady = isGitConfigured(settings);
+
     // ── Pre-flight: warn about missing settings before any API calls ──────────
-    if (!settings.bbWorkspace) {
-      errs.push('Bitbucket – workspace not set in Settings. Branch and PR creation will be attempted but will fail until configured.');
-    }
-    if (!settings.bbRepo) {
-      errs.push('Bitbucket – repository not set in Settings. Branch and PR creation will be attempted but will fail until configured.');
+    if (!gitReady) {
+      errs.push(`${gitLabel} – repository not configured in Settings. Branch, commit and ${changeReqLabel.toLowerCase()} creation will be skipped.`);
     }
     if (!settings.confluenceSpaceKey) {
       errs.push('Confluence – no space key configured in Settings. The Confluence page will not be published.');
@@ -210,22 +226,23 @@ export const Handoff = () => {
 
     await new Promise(r => setTimeout(r, 400));
 
-    // ── Step 2: Bitbucket branches ────────────────────────────────────────────
+    // ── Step 2: Git branches ──────────────────────────────────────────────────
     setPhaseStatus('bitbucket', 'active');
     const branchMap = {};
-    const { bbWorkspace, bbRepo, bbDefaultBranch = 'master' } = settings;
 
-    for (const story of approvedStories) {
-      const jiraKey = jiraMap[story.id]?.key || story.id.toUpperCase();
-      const branchName = getBitbucketBranchName(jiraKey, story.title);
-      const result = await createBitbucketBranch(bbWorkspace, bbRepo, branchName, bbDefaultBranch);
-      branchMap[story.id] = { ...result, name: branchName, jiraKey };
-      setBranchResults(prev => ({ ...prev, [story.id]: { ...result, name: branchName } }));
-      if (!result.success) errs.push(`Bitbucket Branch "${branchName}" – ${result.error}`);
+    if (gitReady) {
+      for (const story of approvedStories) {
+        const jiraKey = jiraMap[story.id]?.key || story.id.toUpperCase();
+        const branchName = getGitBranchName(jiraKey, story.title);
+        const result = await createGitBranch(settings, branchName, getGitDefaultBranch(settings));
+        branchMap[story.id] = { ...result, name: branchName, jiraKey };
+        setBranchResults(prev => ({ ...prev, [story.id]: { ...result, name: branchName } }));
+        if (!result.success) errs.push(`${gitLabel} Branch "${branchName}" – ${result.error}`);
+      }
     }
     setBitbucketBranches(branchMap);
     setErrors([...errs]);
-    setPhaseStatus('bitbucket', Object.values(branchMap).some(b => !b.success) ? 'error' : 'done');
+    setPhaseStatus('bitbucket', !gitReady ? 'done' : (Object.values(branchMap).some(b => !b.success) ? 'error' : 'done'));
 
     await new Promise(r => setTimeout(r, 400));
 
@@ -236,7 +253,9 @@ export const Handoff = () => {
     try {
       const allLabels = [...new Set(approvedStories.flatMap(s => s.labels || []))];
       const allTitles = approvedStories.map(s => s.title).join(' ');
-      repoCtx = await fetchRepoContext(bbWorkspace, bbRepo, bbDefaultBranch, allLabels, allTitles);
+      repoCtx = gitReady
+        ? await fetchGitRepoContext(settings, allLabels, allTitles)
+        : { structure: '', files: [] };
 
       for (const story of approvedStories) {
         try {
@@ -263,10 +282,10 @@ export const Handoff = () => {
       const branch = branchMap[story.id];
       const code = codeMap[story.id];
       if (branch?.success && code?.files?.length > 0) {
-        const commitResult = await commitFilesToBitbucket(bbWorkspace, bbRepo, branch.name, code.files);
+        const commitResult = await commitGitFiles(settings, branch.name, code.files);
         commitMap[story.id] = commitResult;
         if (!commitResult.success) {
-          errs.push(`Bitbucket Commit on "${branch.name}" – ${commitResult.error}`);
+          errs.push(`${gitLabel} Commit on "${branch.name}" – ${commitResult.error}`);
         }
       } else {
         commitMap[story.id] = { success: false, error: 'No code generated to commit' };
@@ -299,12 +318,10 @@ export const Handoff = () => {
         checklist = clRes.checklist || '';
       } catch {}
 
-      const prResult = await createBitbucketPR(
-        bbWorkspace, bbRepo, branch.name, story.title, checklist, jiraKey, bbDefaultBranch
-      );
+      const prResult = await createGitPR(settings, branch.name, story.title, checklist, jiraKey);
       prMap[story.id] = prResult;
       setPrResults(prev => ({ ...prev, [story.id]: prResult }));
-      if (!prResult.success) errs.push(`Bitbucket PR "${story.title}" – ${prResult.error}`);
+      if (!prResult.success) errs.push(`${gitLabel} ${changeReqLabel} "${story.title}" – ${prResult.error}`);
     }
 
     setErrors([...errs]);
@@ -421,11 +438,82 @@ export const Handoff = () => {
     );
   }
 
+  // ── Confirmation gate ─────────────────────────────────────────────────────
+  // Publishing creates real, hard-to-undo artifacts in Jira, Bitbucket, and
+  // Confluence, so the user must explicitly start it (and cannot trigger it by a
+  // stray refresh/navigation).
+  if (phase === 'confirm') {
+    const totalPoints = approvedStories.reduce((sum, s) => sum + (s.adjustedPoints || 0), 0);
+    const epicCount = new Set(
+      approvedStories.map(s => (typeof s.epic === 'string' && s.epic.trim()) ? s.epic.trim() : '__default__')
+    ).size;
+    const gitLabel = getGitProviderLabel(getGitProvider(settings));
+    const gitReady = isGitConfigured(settings);
+    const confluenceReady = !!settings.confluenceSpaceKey;
+    const slackReady = !!settings.slackWebhookUrl;
+
+    return (
+      <div className="handoff-dashboard">
+        <PipelineSteps current="sync" />
+        <div className="card" style={{ maxWidth: 640, margin: '0 auto' }}>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-indigo-500/10 rounded-lg"><Rocket size={22} style={{ color: 'var(--color-primary)' }} /></div>
+            <h1 className="text-2xl font-bold">Ready to Publish</h1>
+          </div>
+          <p className="text-secondary text-sm mb-5">
+            Review what will be created before you publish. These actions write real artifacts to your
+            connected tools and are not automatically reversible.
+          </p>
+
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className="p-3 rounded-lg bg-surface-elevated border border-subtle text-center">
+              <div className="text-2xl font-bold gradient-text">{approvedStories.length}</div>
+              <div className="text-xs text-tertiary uppercase tracking-wide mt-1">Stories</div>
+            </div>
+            <div className="p-3 rounded-lg bg-surface-elevated border border-subtle text-center">
+              <div className="text-2xl font-bold">{epicCount}</div>
+              <div className="text-xs text-tertiary uppercase tracking-wide mt-1">Epic{epicCount > 1 ? 's' : ''}</div>
+            </div>
+            <div className="p-3 rounded-lg bg-surface-elevated border border-subtle text-center">
+              <div className="text-2xl font-bold">{totalPoints}</div>
+              <div className="text-xs text-tertiary uppercase tracking-wide mt-1">Points</div>
+            </div>
+          </div>
+
+          <div className="flex-col gap-2 mb-5">
+            <PublishTarget ready label="Jira" detail="Epic, stories, Dev & QA sub-tasks" readyText="Epic, stories, Dev & QA sub-tasks" />
+            <PublishTarget ready={gitReady} label={gitLabel} detail="Repository not set — will be skipped" readyText={`${getGitRepoLabel(settings)} · branches, code, ${getChangeRequestLabel(settings).toLowerCase()}s`} />
+            <PublishTarget ready={confluenceReady} label="Confluence" detail="No space key — doc will be skipped" readyText={`Space ${settings.confluenceSpaceKey} · solutioning doc`} />
+            <PublishTarget ready={slackReady} label="Notifications" detail="No webhook — notification will be skipped" readyText="Webhook configured · summary will be sent" />
+          </div>
+
+          <div className="flex gap-3 justify-end">
+            <button className="btn btn-secondary" onClick={() => navigate('/review')}>
+              <ArrowRight size={16} style={{ transform: 'rotate(180deg)' }} /> Back to Review
+            </button>
+            <button className="btn btn-primary px-6" onClick={runSync}>
+              <Rocket size={16} /> Start Publishing
+            </button>
+          </div>
+
+          {(!gitReady || !confluenceReady) && (
+            <p className="text-xs text-tertiary mt-4 text-center">
+              Steps for unconfigured tools are skipped automatically — you can still publish Jira tickets.{' '}
+              <button className="text-primary hover:underline" onClick={() => navigate('/settings')}>Open Settings</button>
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="handoff-dashboard">
       {showEmailModal && emailContent && (
         <EmailModal emailContent={emailContent} onClose={() => setShowEmailModal(false)} />
       )}
+
+      <PipelineSteps current="sync" />
 
       <header className="mb-8 text-center">
         {phase !== 'done' ? (
@@ -445,7 +533,7 @@ export const Handoff = () => {
             </div>
             <h1 className="text-3xl font-bold mb-2 animate-fade-in">Sync Complete!</h1>
             <p className="text-secondary animate-fade-in">
-              1 Epic · {jiraSuccessCount} stories · {jiraSuccessCount * 2} sub-tasks · {branchSuccessCount} branches · {prSuccessCount} PRs · {confluenceResult?.success ? '1 Confluence page' : 'Confluence skipped'}
+              1 Epic · {jiraSuccessCount} stories · {jiraSuccessCount * 2} sub-tasks · {branchSuccessCount} branches · {prSuccessCount} {crShort}s · {confluenceResult?.success ? '1 Confluence page' : 'Confluence skipped'}
             </p>
           </>
         )}
@@ -454,10 +542,10 @@ export const Handoff = () => {
       <div className="sync-progress-grid mb-8" style={{ maxWidth: 520, margin: '0 auto 2rem' }}>
         <SyncPhase label="Connecting to Atlassian toolchain" status={phaseStatuses.jira === 'waiting' ? 'waiting' : 'done'} />
         <SyncPhase label={`Creating Epic, ${approvedStories.length} stories, Dev & QA sub-tasks`} status={phaseStatuses.jira} />
-        <SyncPhase label="Scaffolding Bitbucket branches" status={phaseStatuses.bitbucket} />
+        <SyncPhase label={`Scaffolding ${gitProviderLabel} branches`} status={phaseStatuses.bitbucket} />
         <SyncPhase label="Analysing repo & generating code scaffolding" status={phaseStatuses.codeGen} />
         <SyncPhase label="Pushing generated code to feature branches" status={phaseStatuses.commit} />
-        <SyncPhase label="Opening pull requests with checklists" status={phaseStatuses.prchecklist} />
+        <SyncPhase label={`Opening ${changeRequestLabel.toLowerCase()}s with checklists`} status={phaseStatuses.prchecklist} />
         <SyncPhase label="Publishing detailed architecture docs to Confluence" status={phaseStatuses.confluence} />
         <SyncPhase label="Generating summary email & notifying stakeholders" status={phaseStatuses.email} />
       </div>
@@ -527,9 +615,9 @@ export const Handoff = () => {
           <div className="card artifact-card animate-fade-in stagger-2">
             <div className="flex items-center gap-3 mb-5">
               <div className="p-2 bg-blue-600/10 rounded-lg"><GitBranch size={22} style={{ color: '#818cf8' }} /></div>
-              <h2 className="text-lg font-semibold">Branches & Pull Requests</h2>
+              <h2 className="text-lg font-semibold">Branches & {changeRequestLabel}s</h2>
             </div>
-            {settings.bbWorkspace && settings.bbRepo ? (
+            {gitConfigured ? (
               <div className="flex-col gap-2">
                 {approvedStories.map(story => {
                   const branch = branchResults[story.id];
@@ -558,7 +646,7 @@ export const Handoff = () => {
                         <div className="flex items-center gap-1 mt-1">
                           <GitPullRequest size={11} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
                           <a href={pr.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate">
-                            PR #{pr.id} (with checklist)
+                            {crShort} #{pr.id} (with checklist)
                           </a>
                         </div>
                       ) : pr && !pr.success && pr.error ? (
@@ -572,7 +660,7 @@ export const Handoff = () => {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center text-center gap-2" style={{ flex: 1, minHeight: 80 }}>
-                <p className="text-sm text-secondary">Configure Bitbucket workspace & repository in Settings to enable branch and PR creation.</p>
+                <p className="text-sm text-secondary">Configure your {gitProviderLabel} repository in Settings to enable branch and {changeRequestLabel.toLowerCase()} creation.</p>
                 <button className="btn btn-secondary text-xs py-1 px-3" onClick={() => navigate('/settings')}>
                   Open Settings
                 </button>

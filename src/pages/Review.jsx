@@ -5,6 +5,7 @@ import {
   FileText, X, TestTube, ThumbsUp, ThumbsDown, CheckSquare, Download
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { PipelineSteps } from '../components/PipelineSteps';
 import { mockStories } from '../mocks';
 import { ReactFlow, Background, Controls, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -97,10 +98,8 @@ export const Review = () => {
   };
 
   const handlePushToJira = () => {
-    if (approvedCount === 0) {
-      alert('Please approve at least one story before pushing to Jira.');
-      return;
-    }
+    // The button is disabled at 0 approved; this guard is a defensive backstop.
+    if (approvedCount === 0) return;
     navigate('/handoff');
   };
 
@@ -138,6 +137,7 @@ export const Review = () => {
 
   return (
     <div className="review-dashboard h-full flex flex-col">
+      <PipelineSteps current="review" />
       <header className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold">Review Checkpoint</h1>
