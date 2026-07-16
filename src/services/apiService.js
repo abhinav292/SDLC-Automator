@@ -17,6 +17,10 @@ const request = async (method, path, body) => {
 export const extractStoriesFromAI = (text, fileNames) =>
   request('POST', '/extract', { text, fileNames });
 
+// PRD Generation (from raw transcripts / notes)
+export const generatePRD = (text, projectName) =>
+  request('POST', '/generate-prd', { text, projectName });
+
 // Pipelines
 export const fetchPipelines = () => request('GET', '/pipelines');
 export const createPipeline = (data) => request('POST', '/pipelines', data);

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import {
-  LayoutDashboard, CheckSquare, Network, Settings, Bell, User, Activity, Menu, X
+  LayoutDashboard, CheckSquare, Network, Settings, Bell, User, Activity, Menu, X, FileText
 } from 'lucide-react';
 import './Layout.css';
 
@@ -39,6 +39,7 @@ export const Layout = () => {
         <nav className="sidebar-nav">
           <div className="nav-section">Main</div>
           <NavigationItem to="/" icon={LayoutDashboard} label="Dashboard" exact onClick={closeSidebar} />
+          <NavigationItem to="/prd" icon={FileText} label="Draft PRD" onClick={closeSidebar} />
           <NavigationItem to="/review" icon={CheckSquare} label="Review Pipeline" onClick={closeSidebar} />
           <NavigationItem to="/handoff" icon={Network} label="Artifacts & Sync" onClick={closeSidebar} />
         </nav>

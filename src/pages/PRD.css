@@ -1,0 +1,198 @@
+.prd-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  height: 100%;
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* ── Header ──────────────────────────────────────────── */
+.prd-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.prd-header h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+}
+
+.prd-meta {
+  display: inline-block;
+  margin-left: 0.6rem;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.prd-header-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* ── Error banner ────────────────────────────────────── */
+.prd-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  font-size: 0.85rem;
+  color: #fca5a5;
+  background: rgba(244, 63, 94, 0.1);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  border-radius: var(--radius-lg);
+}
+
+/* ── Toolbar / view toggle ───────────────────────────── */
+.prd-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.prd-view-toggle {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.prd-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.prd-toggle-btn:hover { color: var(--text-primary); }
+
+.prd-toggle-btn.active {
+  color: #fff;
+  background: var(--color-primary);
+}
+
+/* ── Workspace ───────────────────────────────────────── */
+.prd-workspace {
+  display: grid;
+  gap: var(--spacing-4);
+  flex: 1;
+  min-height: 0;
+}
+
+.prd-workspace.view-split { grid-template-columns: 1fr 1fr; }
+.prd-workspace.view-edit,
+.prd-workspace.view-preview { grid-template-columns: 1fr; }
+
+.prd-editor-pane,
+.prd-preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.prd-pane-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+/* ── Editor ──────────────────────────────────────────── */
+.prd-editor {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  resize: none;
+  padding: 1.1rem 1.25rem;
+  background: var(--bg-root, #0b1120);
+  color: var(--text-secondary);
+  border: none;
+  outline: none;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.prd-editor::placeholder { color: var(--text-tertiary); }
+
+/* ── Preview ─────────────────────────────────────────── */
+.prd-preview {
+  flex: 1;
+  min-height: 0;
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.prd-preview h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.prd-preview h2 {
+  font-size: 1.15rem;
+  font-weight: 650;
+  color: var(--text-primary);
+  margin: 1.4rem 0 0.6rem;
+}
+
+.prd-preview h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 1.1rem 0 0.45rem;
+}
+
+.prd-preview p { margin: 0 0 0.7rem; }
+
+.prd-preview ul,
+.prd-preview ol {
+  margin: 0 0 0.9rem;
+  padding-left: 1.4rem;
+}
+
+.prd-preview li { margin-bottom: 0.3rem; }
+
+.prd-preview strong { color: var(--text-primary); font-weight: 650; }
+
+.prd-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  padding: 0.1rem 0.35rem;
+  background: rgba(99, 102, 241, 0.12);
+  border-radius: 5px;
+  color: #c7d2fe;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 900px) {
+  .prd-workspace.view-split { grid-template-columns: 1fr; }
+  .prd-workspace.view-split .prd-preview-pane { display: none; }
+}

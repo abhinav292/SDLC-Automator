@@ -6,8 +6,8 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { extractTextFromFile } from '../services/fileReaderService';
-import { extractStoriesFromFiles } from '../services/extractionService';
 import { createPipeline, checkBackendHealth, logEvent, cleanTranscript } from '../services/apiService';
+import { generatePRDDoc } from '../services/prdService';
 import './Dashboard.css';
 
 const StatusBadge = ({ status }) => {
@@ -23,7 +23,7 @@ const StatusBadge = ({ status }) => {
 
 export const Dashboard = () => {
   const navigate = useNavigate();
-  const { pipelineStats, pipelineHistory, loadPipelineHistory, setStoriesFromExtraction, loadMockStories } = useApp();
+  const { pipelineStats, pipelineHistory, loadPipelineHistory, setPrdFromGeneration, loadMockStories, settings } = useApp();
 
   const [files, setFiles] = useState([]);
   const [dragActive, setDragActive] = useState(false);
@@ -137,15 +137,7 @@ export const Dashboard = () => {
         if (text) texts.push(`File: ${file.name}\n\n${text}`);
       }
 
-      setProcessingStep('Running AI extraction via OpenRouter...');
-      const { stories, truncated } = await extractStoriesFromFiles(texts);
-
-      if (truncated) {
-        console.warn('[Dashboard] AI response was truncated — some stories may be missing. Try splitting the transcript.');
-      }
-
-      setProcessingStep('Saving to database...');
-      await setStoriesFromExtraction(stories, pipelineId);
+      const combinedSource = texts.join('\n\n---\n\n');
 
       if (pipelineId) {
         await logEvent(pipelineId, 'transcript_uploaded', {
@@ -155,7 +147,13 @@ export const Dashboard = () => {
         }).catch(() => {});
       }
 
-      navigate('/review');
+      setProcessingStep('Drafting PRD with AI...');
+      const { prd } = await generatePRDDoc(combinedSource, settings?.projectName || '');
+
+      setProcessingStep('Opening PRD editor...');
+      await setPrdFromGeneration(prd, combinedSource, pipelineId);
+
+      navigate('/prd');
     } catch (err) {
       console.error('Extraction error:', err);
       alert(`Extraction failed: ${err.message}`);
@@ -311,7 +309,7 @@ export const Dashboard = () => {
                 ? <><Loader2 className="animate-spin" size={16} />{processingStep || 'Processing...'}</>
                 : isCleaningTranscript
                   ? <><Loader2 className="animate-spin" size={16} />Cleaning transcript...</>
-                  : <><Zap size={16} />Run AI Extraction Pipeline</>}
+                  : <><Zap size={16} />Generate PRD</>}
             </button>
             <button
               className="btn btn-secondary"
