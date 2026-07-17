@@ -6,6 +6,8 @@ import { PRD } from './pages/PRD';
 import { Review } from './pages/Review';
 import { Handoff } from './pages/Handoff';
 import { Settings } from './pages/Settings';
+import { Admin } from './pages/Admin';
+import { Trace } from './pages/Trace';
 import { AppProvider } from './context/AppContext';
 
 function App() {
@@ -18,6 +20,8 @@ function App() {
             <Route path="prd" element={<PRD />} />
             <Route path="review" element={<Review />} />
             <Route path="handoff" element={<Handoff />} />
+            <Route path="trace" element={<Trace />} />
+            <Route path="admin" element={<Admin />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

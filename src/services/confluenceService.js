@@ -1,3 +1,4 @@
+/* global __ATLASSIAN_DOMAIN__ */
 const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
 
 export const getConfluenceBaseUrl = () => `https://${DOMAIN}/wiki`;
@@ -99,6 +100,22 @@ export const createConfluencePage = async (spaceKey, title, stories, solutioning
     }
 
     return { success: false, error: data.message || JSON.stringify(data) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+export const deleteConfluencePage = async (pageId) => {
+  if (!pageId) return { success: false, error: 'No Confluence page id provided.' };
+  try {
+    const res = await fetch(`/api/confluence/content/${encodeURIComponent(pageId)}`, {
+      method: 'DELETE',
+      headers: { 'X-Atlassian-Token': 'no-check' }
+    });
+    if (res.ok) return { success: true };
+    let errMsg = `HTTP ${res.status}`;
+    try { const d = await res.json(); errMsg = d.message || JSON.stringify(d); } catch {}
+    return { success: false, error: errMsg };
   } catch (err) {
     return { success: false, error: err.message };
   }

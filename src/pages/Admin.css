@@ -1,0 +1,706 @@
+/* ────────────────────────────────────────────────────────
+   Admin.css — Priority Liquid Glass
+   Users & roles · governance toggles · audit trail · perms
+   Tokens live in src/index.css; this file only consumes them.
+   ──────────────────────────────────────────────────────── */
+
+.admin-page {
+  animation: fadeIn 0.4s ease-out;
+  padding-bottom: var(--spacing-8);
+}
+
+/* ── Admins-only lock state ─────────────────────────── */
+.admin-locked {
+  min-height: 50vh;
+  margin-top: var(--spacing-8);
+}
+
+.admin-locked p {
+  max-width: 46ch;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.admin-locked-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Glass segmented tab control ────────────────────── */
+.admin-tabs {
+  display: inline-flex;
+  gap: 0.3rem;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.3rem;
+  margin-bottom: var(--spacing-6);
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-highlight), var(--shadow-sm);
+}
+
+.admin-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.5rem 1rem;
+  min-height: 38px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.admin-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-interactive-hover);
+}
+
+.admin-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
+
+.admin-tab.active {
+  color: var(--text-on-brand);
+  background: var(--brand-gradient);
+  box-shadow: 0 2px 10px -2px rgba(95, 191, 169, 0.45);
+}
+
+/* ── Cards ──────────────────────────────────────────── */
+.admin-card {
+  margin-bottom: var(--spacing-6);
+}
+
+.admin-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-2);
+}
+
+.admin-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--color-primary);
+}
+
+.admin-card-title h3 {
+  font-size: 1.0625rem;
+  color: var(--text-primary);
+}
+
+.admin-card-hint {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  max-width: 72ch;
+  margin-bottom: var(--spacing-5);
+}
+
+/* ── Shared small buttons ───────────────────────────── */
+.admin-btn-sm {
+  padding: 0.4rem 0.8rem;
+  min-height: 34px;
+  font-size: 0.78rem;
+}
+
+.admin-btn-xs {
+  padding: 0.3rem 0.65rem;
+  min-height: 30px;
+  font-size: 0.72rem;
+}
+
+/* ── Inline errors & empties ────────────────────────── */
+.inline-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--color-error);
+  background: rgba(240, 122, 106, 0.08);
+  border: 1px solid rgba(240, 122, 106, 0.22);
+  border-radius: var(--radius-md);
+}
+
+.inline-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.admin-inline-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: var(--spacing-5);
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+/* Visually hidden (a11y labels) */
+.admin-page .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Users & Roles ──────────────────────────────────── */
+.user-list {
+  list-style: none;
+  margin-bottom: var(--spacing-5);
+}
+
+.user-row-wrap {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-row-wrap:first-child {
+  padding-top: 0.25rem;
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  flex-wrap: wrap;
+}
+
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--brand-gradient);
+  color: var(--text-on-brand);
+  font-family: 'Outfit', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  box-shadow: 0 3px 10px -3px rgba(95, 191, 169, 0.45);
+}
+
+.user-meta {
+  flex: 1;
+  min-width: 140px;
+}
+
+.user-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-you {
+  font-size: 0.58rem;
+  padding: 1px 7px;
+}
+
+.user-id {
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.user-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.user-role-select {
+  width: 180px;
+  min-height: 36px;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  font-size: 0.8125rem;
+}
+
+/* ── Add-user inline form ───────────────────────────── */
+.add-user-form {
+  padding-top: var(--spacing-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.add-user-fields {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.add-user-name {
+  flex: 1;
+  min-width: 180px;
+}
+
+.add-user-role {
+  width: 180px;
+}
+
+/* ── Governance ─────────────────────────────────────── */
+.gov-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.gov-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.gov-row-icon {
+  align-self: flex-start;
+}
+
+.gov-row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.gov-row-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gov-row-desc {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  line-height: 1.55;
+  max-width: 62ch;
+}
+
+.gov-row-desc code {
+  font-size: 0.72rem;
+  color: var(--color-primary-hover);
+  background: rgba(150, 220, 195, 0.08);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+/* Toggle switch (neumorphic well → brand knob) */
+.admin-switch {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: var(--radius-full);
+  background: #0E2B20;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: var(--neu-inset);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.admin-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--neu-inset), 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
+
+.admin-switch-knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transform: translateY(-50%);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease;
+}
+
+.admin-switch.on {
+  background: rgba(95, 191, 169, 0.22);
+  border-color: rgba(95, 191, 169, 0.5);
+}
+
+.admin-switch.on .admin-switch-knob {
+  transform: translate(20px, -50%);
+  background: var(--brand-gradient);
+  box-shadow: 0 0 8px rgba(95, 191, 169, 0.5);
+}
+
+/* Handoff mode mini segmented control */
+.gov-segment {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  flex-shrink: 0;
+  background: var(--neu-surface);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--neu-inset);
+}
+
+.gov-segment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.38rem 0.7rem;
+  min-height: 30px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.gov-segment-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-interactive);
+}
+
+.gov-segment-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
+
+.gov-segment-btn.active {
+  color: var(--text-on-brand);
+  background: var(--brand-gradient);
+  box-shadow: 0 2px 8px -2px rgba(95, 191, 169, 0.45);
+}
+
+/* Sign-off gate tiles */
+.gate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--spacing-4);
+}
+
+.gate-tile {
+  padding: var(--spacing-4);
+  color: var(--color-primary);
+}
+
+.gate-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 0.5rem;
+}
+
+.gate-desc {
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+  line-height: 1.55;
+  margin-top: 0.25rem;
+}
+
+/* ── Audit trail ────────────────────────────────────── */
+.audit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-4);
+}
+
+.audit-filter {
+  width: auto;
+  min-width: 160px;
+  max-width: 230px;
+  min-height: 36px;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  font-size: 0.8rem;
+}
+
+.audit-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* ── Tables (audit + permission matrix) ─────────────── */
+.admin-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.admin-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.admin-table th {
+  text-align: left;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  background: rgba(150, 220, 195, 0.04);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.admin-table td {
+  padding: 0.6rem 0.85rem;
+  vertical-align: top;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--bg-interactive);
+}
+
+/* Audit cells */
+.audit-time {
+  white-space: nowrap;
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+}
+
+.audit-actor {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.audit-actor-role {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.audit-action {
+  display: inline-block;
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  color: var(--color-primary-hover);
+  background: rgba(150, 220, 195, 0.07);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.audit-ai {
+  margin-left: 0.35rem;
+  font-size: 0.56rem;
+  padding: 1px 6px;
+  vertical-align: middle;
+}
+
+.audit-reason {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.68rem;
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+.audit-entity {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.audit-entity-id {
+  display: block;
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.audit-field {
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.audit-change {
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.7rem;
+  max-width: 340px;
+  overflow-wrap: anywhere;
+}
+
+.audit-before { color: #F5A297; }
+.audit-after { color: #7CE4B4; }
+
+.audit-arrow {
+  margin: 0 0.35rem;
+  color: var(--text-muted);
+}
+
+.audit-nochange {
+  color: var(--text-muted);
+}
+
+/* Permission matrix */
+.perms-table {
+  min-width: 640px;
+}
+
+.perm-role-col {
+  text-align: center;
+}
+
+.perm-name span {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.perm-code {
+  font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.perm-cell {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.perm-yes { color: var(--color-success); }
+.perm-no { color: var(--text-muted); opacity: 0.55; }
+
+/* ── Responsive ─────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .admin-tabs {
+    display: flex;
+    width: 100%;
+  }
+
+  .admin-tab {
+    flex: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .gov-row {
+    align-items: flex-start;
+  }
+
+  .gov-segment {
+    align-self: center;
+  }
+
+  .audit-toolbar-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .audit-filter {
+    max-width: 100%;
+    flex: 1 1 45%;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-tab span {
+    display: none; /* icons only in the segmented control */
+  }
+
+  .admin-tab {
+    min-width: 44px;
+  }
+
+  .user-actions {
+    width: 100%;
+  }
+
+  .user-role-select,
+  .add-user-role {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .user-actions .btn,
+  .add-user-fields .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .gov-row {
+    flex-wrap: wrap;
+  }
+
+  .gov-row .admin-switch,
+  .gov-row .gov-segment {
+    margin-left: 56px; /* aligns under text, past the icon chip */
+  }
+
+  .audit-toolbar-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* ── backdrop-filter fallback ───────────────────────── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .admin-tabs {
+    background: linear-gradient(160deg, rgba(22, 56, 42, 0.96), rgba(8, 31, 23, 0.98));
+  }
+}
+
+/* ── Reduced Motion ─────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .admin-page {
+    animation: none;
+  }
+
+  .admin-tab,
+  .gov-segment-btn,
+  .admin-switch,
+  .admin-switch-knob {
+    transition: none;
+  }
+}

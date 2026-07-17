@@ -113,6 +113,42 @@ export const createBitbucketPR = async (workspace, repo, branchName, storyTitle,
   }
 };
 
+export const deleteBitbucketBranch = async (workspace, repo, branch) => {
+  if (!workspace || !repo || !branch) {
+    return { success: false, error: 'Bitbucket workspace, repository and branch are required.' };
+  }
+  try {
+    const res = await fetch(
+      `/api/bitbucket/repositories/${workspace}/${repo}/refs/branches/${encodeURIComponent(branch)}`,
+      { method: 'DELETE' }
+    );
+    if (res.ok) return { success: true };
+    let errMsg = `HTTP ${res.status}`;
+    try { const d = await res.json(); errMsg = d.error?.message || JSON.stringify(d); } catch {}
+    return { success: false, error: errMsg };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+export const declineBitbucketPR = async (workspace, repo, prId) => {
+  if (!workspace || !repo || !prId) {
+    return { success: false, error: 'Bitbucket workspace, repository and pull request id are required.' };
+  }
+  try {
+    const res = await fetch(
+      `/api/bitbucket/repositories/${workspace}/${repo}/pullrequests/${encodeURIComponent(prId)}/decline`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+    );
+    if (res.ok) return { success: true };
+    let errMsg = `HTTP ${res.status}`;
+    try { const d = await res.json(); errMsg = d.error?.message || JSON.stringify(d); } catch {}
+    return { success: false, error: errMsg };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
 const EXT_LANG_MAP = {
   js: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx',
   py: 'python', java: 'java', rb: 'ruby', go: 'go', rs: 'rust',

@@ -79,6 +79,25 @@ export const fetchGitRepoContext = (settings, labels, title) => {
   }
 };
 
+// Rollback support: delete a previously created branch on the selected provider.
+export const deleteGitBranch = (settings, branch) => {
+  switch (getGitProvider(settings)) {
+    case 'github': return gh.deleteGithubBranch(settings.ghOwner, settings.ghRepo, branch);
+    case 'gitlab': return gl.deleteGitlabBranch(settings.glProject, branch);
+    default: return bb.deleteBitbucketBranch(settings.bbWorkspace, settings.bbRepo, branch);
+  }
+};
+
+// Rollback support: close/decline a previously created PR/MR on the selected provider.
+// `prRef` is the provider-native identifier (PR id for Bitbucket, number for GitHub, iid for GitLab).
+export const closeGitPR = (settings, prRef) => {
+  switch (getGitProvider(settings)) {
+    case 'github': return gh.closeGithubPR(settings.ghOwner, settings.ghRepo, prRef);
+    case 'gitlab': return gl.closeGitlabMR(settings.glProject, prRef);
+    default: return bb.declineBitbucketPR(settings.bbWorkspace, settings.bbRepo, prRef);
+  }
+};
+
 // The unit of work a merge request represents ("PR" for Bitbucket/GitHub, "MR" for GitLab).
 export const getChangeRequestLabel = (settings) =>
   getGitProvider(settings) === 'gitlab' ? 'Merge Request' : 'Pull Request';

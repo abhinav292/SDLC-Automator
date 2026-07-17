@@ -1,3 +1,9 @@
+/* ────────────────────────────────────────────────────────
+   PRD.css — PRD editor page
+   Priority Liquid Glass · glass panes, neumorphic wells
+   Consumes tokens from src/index.css only.
+   ──────────────────────────────────────────────────────── */
+
 .prd-page {
   display: flex;
   flex-direction: column;
@@ -16,8 +22,11 @@
 }
 
 .prd-header h1 {
+  font-family: 'Outfit', sans-serif;
   font-size: 1.875rem;
   font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 .prd-meta {
@@ -40,47 +49,82 @@
   gap: 0.5rem;
   padding: 0.7rem 1rem;
   font-size: 0.85rem;
-  color: #fca5a5;
-  background: rgba(244, 63, 94, 0.1);
-  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #F5A297;
+  background: rgba(240, 122, 106, 0.1);
+  border: 1px solid rgba(240, 122, 106, 0.3);
   border-radius: var(--radius-lg);
 }
 
-/* ── Toolbar / view toggle ───────────────────────────── */
+/* ── Toolbar / view toggle (neumorphic inset well) ───── */
 .prd-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.prd-toolbar-tools {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .prd-view-toggle {
   display: inline-flex;
   gap: 0.25rem;
   padding: 0.25rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  background: var(--neu-surface);
+  border: 1px solid rgba(0, 0, 0, 0.25);
   border-radius: var(--radius-lg);
+  box-shadow: var(--neu-inset);
 }
 
 .prd-toggle-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
   padding: 0.4rem 0.8rem;
+  min-height: 32px;
   font-size: 0.78rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-secondary);
   background: transparent;
   border: none;
   border-radius: var(--radius-md, 8px);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.prd-toggle-btn:hover { color: var(--text-primary); }
+.prd-toggle-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-interactive);
+}
+
+.prd-toggle-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
 
 .prd-toggle-btn.active {
-  color: #fff;
-  background: var(--color-primary);
+  color: var(--text-on-brand);
+  background: var(--brand-gradient);
+  box-shadow: 0 2px 10px -2px rgba(95, 191, 169, 0.45);
+}
+
+/* ── Main area: workspace + optional AI review rail ──── */
+.prd-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-4);
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.prd-main.with-panel {
+  grid-template-columns: minmax(0, 1fr) 340px;
 }
 
 /* ── Workspace ───────────────────────────────────────── */
@@ -95,6 +139,7 @@
 .prd-workspace.view-edit,
 .prd-workspace.view-preview { grid-template-columns: 1fr; }
 
+/* Panes are glass (.card in JSX); flush content, no lift while typing */
 .prd-editor-pane,
 .prd-preview-pane {
   display: flex;
@@ -104,38 +149,64 @@
   overflow: hidden;
 }
 
+.prd-editor-pane.card:hover,
+.prd-preview-pane.card:hover {
+  transform: none;
+}
+
+/* Section header — gradient-text accent, teal icon */
 .prd-pane-label {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0.6rem 1rem;
   font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-tertiary);
+  color: var(--color-primary); /* drives lucide currentColor */
+  background: linear-gradient(135deg, #5FBFA9 0%, #D9E28E 60%, #EFE9A8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
-/* ── Editor ──────────────────────────────────────────── */
+/* ── Editor (neumorphic inset well inside the glass pane) ── */
 .prd-editor {
   flex: 1;
   width: 100%;
   min-height: 0;
   resize: none;
   padding: 1.1rem 1.25rem;
-  background: var(--bg-root, #0b1120);
+  background: #0E2B20;
   color: var(--text-secondary);
   border: none;
   outline: none;
+  box-shadow: var(--neu-inset);
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 0.82rem;
   line-height: 1.6;
   tab-size: 2;
+  transition: box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.prd-editor:focus {
+  background: #103023;
+  box-shadow: var(--neu-inset), inset 0 0 0 2px rgba(95, 191, 169, 0.22);
 }
 
 .prd-editor::placeholder { color: var(--text-tertiary); }
+
+.prd-editor::selection {
+  background: rgba(95, 191, 169, 0.3);
+}
+
+.prd-editor::-webkit-scrollbar { width: 5px; }
+.prd-editor::-webkit-scrollbar-track { background: transparent; }
+.prd-editor::-webkit-scrollbar-thumb { background: rgba(95, 191, 169, 0.3); border-radius: 10px; }
+.prd-editor::-webkit-scrollbar-thumb:hover { background: rgba(95, 191, 169, 0.5); }
 
 /* ── Preview ─────────────────────────────────────────── */
 .prd-preview {
@@ -148,6 +219,7 @@
 }
 
 .prd-preview h1 {
+  font-family: 'Outfit', sans-serif;
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -157,6 +229,7 @@
 }
 
 .prd-preview h2 {
+  font-family: 'Outfit', sans-serif;
   font-size: 1.15rem;
   font-weight: 650;
   color: var(--text-primary);
@@ -164,6 +237,7 @@
 }
 
 .prd-preview h3 {
+  font-family: 'Outfit', sans-serif;
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -182,17 +256,541 @@
 
 .prd-preview strong { color: var(--text-primary); font-weight: 650; }
 
+.prd-preview em { color: var(--color-accent); }
+
 .prd-preview code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82em;
   padding: 0.1rem 0.35rem;
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(95, 191, 169, 0.12);
+  border: 1px solid rgba(95, 191, 169, 0.18);
   border-radius: 5px;
-  color: #c7d2fe;
+  color: #9FE0CE;
+}
+
+/* ── Shared small controls ───────────────────────────── */
+.prd-btn-xs {
+  padding: 0.3rem 0.65rem;
+  min-height: 28px;
+  font-size: 0.72rem;
+}
+
+.prd-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.prd-icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-interactive-hover);
+}
+
+.prd-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
+
+.prd-gate-wrap {
+  display: inline-flex;
+}
+
+/* ── TPM sign-off strip ──────────────────────────────── */
+.prd-signoff-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-lg);
+}
+
+.prd-signoff-info {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.prd-signoff-meta {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.prd-signoff-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* ── AI Review panel (right rail on desktop) ─────────── */
+.prd-lint-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.prd-lint-panel.card:hover {
+  transform: none;
+}
+
+.prd-lint-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Reuse the pane-label gradient without doubling its bottom border */
+.prd-lint-label {
+  border-bottom: none;
+}
+
+.prd-lint-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.prd-lint-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.5rem 0.75rem;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+}
+
+.prd-lint-error {
+  align-items: flex-start;
+}
+
+.prd-lint-error-hint {
+  margin-top: 0.25rem;
+  font-size: 0.74rem;
+  color: var(--text-tertiary);
+}
+
+.prd-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg-interactive);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.prd-issue-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.prd-issue-top .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  text-transform: capitalize;
+}
+
+.prd-issue-section {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.prd-issue-quote {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.25);
+  border-left: 2px solid var(--color-primary);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.prd-issue-text {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.prd-issue-suggestion {
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.prd-issue-suggestion strong {
+  color: #7CE4B4;
+  font-weight: 650;
+}
+
+.prd-issue-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.prd-issue-applied {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.prd-issue-nofix {
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+/* ── Version history drawer ──────────────────────────── */
+.prd-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(4, 16, 12, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.prd-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 95;
+  width: min(560px, 100vw);
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  border-left: 1px solid var(--glass-border);
+  background: var(--glass-bg-strong);
+  box-shadow: var(--shadow-lg);
+  animation: prdDrawerIn 0.25s ease-out;
+}
+
+@keyframes prdDrawerIn {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.prd-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.prd-drawer-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.prd-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.prd-drawer-hint {
+  font-size: 0.76rem;
+  color: var(--text-tertiary);
+}
+
+.prd-drawer-flash {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.78rem;
+  color: #7CE4B4;
+  background: rgba(67, 214, 149, 0.12);
+  border: 1px solid rgba(67, 214, 149, 0.25);
+  border-radius: var(--radius-md);
+}
+
+.prd-version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.prd-version-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-interactive);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.prd-version-row.selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(95, 191, 169, 0.3);
+}
+
+.prd-version-check {
+  accent-color: var(--color-primary);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.prd-version-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.prd-version-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.prd-version-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.prd-version-meta {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+}
+
+/* ── Diff view ───────────────────────────────────────── */
+.prd-diff-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.prd-diff-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.prd-diff-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.prd-diff-summary {
+  padding: 0.75rem 0.9rem;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  background: rgba(95, 191, 169, 0.08);
+  border: 1px solid rgba(95, 191, 169, 0.25);
+  border-radius: var(--radius-md);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.prd-diff {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.25);
+  max-height: 45vh;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 0.35rem 0;
+}
+
+.prd-diff-line {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.05rem 0.6rem;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.prd-diff-line.add {
+  background: rgba(67, 214, 149, 0.12);
+  color: #7CE4B4;
+}
+
+.prd-diff-line.del {
+  background: rgba(240, 122, 106, 0.12);
+  color: #F5A297;
+}
+
+.prd-diff-sign {
+  width: 1ch;
+  flex-shrink: 0;
+  opacity: 0.7;
+  user-select: none;
+}
+
+.prd-diff-text {
+  min-width: 0;
 }
 
 /* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .prd-workspace.view-split { gap: var(--spacing-3); }
+
+  /* AI review rail stacks above the workspace */
+  .prd-main.with-panel { grid-template-columns: minmax(0, 1fr); }
+  .prd-lint-panel { order: -1; max-height: 320px; }
+  .prd-main.with-panel .prd-workspace { min-height: 320px; }
+}
+
 @media (max-width: 900px) {
   .prd-workspace.view-split { grid-template-columns: 1fr; }
   .prd-workspace.view-split .prd-preview-pane { display: none; }
+}
+
+@media (max-width: 768px) {
+  .prd-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prd-header h1 { font-size: 1.5rem; }
+
+  .prd-header-actions { width: 100%; }
+
+  .prd-toolbar { justify-content: flex-start; }
+
+  .prd-toggle-btn {
+    min-height: 40px;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .prd-signoff-strip {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prd-signoff-actions { justify-content: flex-end; }
+
+  .prd-drawer { width: 100vw; border-left: none; }
+}
+
+@media (max-width: 480px) {
+  .prd-header-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .prd-view-toggle {
+    width: 100%;
+    display: flex;
+  }
+
+  .prd-toggle-btn { flex: 1; }
+
+  .prd-editor { padding: 0.9rem 1rem; }
+  .prd-preview { padding: 1rem 1.1rem; }
+
+  .prd-header-actions .prd-gate-wrap {
+    flex: 1 1 auto;
+    display: flex;
+  }
+
+  .prd-gate-wrap .btn { flex: 1; justify-content: center; }
+
+  .prd-toolbar-tools { width: 100%; }
+  .prd-toolbar-tools .btn { flex: 1; justify-content: center; }
+
+  .prd-drawer-head { padding: 0.85rem 1rem; }
+  .prd-drawer-body { padding: 0.85rem 1rem; }
+
+  .prd-version-row {
+    flex-wrap: wrap;
+  }
+
+  .prd-version-row .prd-btn-xs {
+    margin-left: auto;
+  }
+}
+
+/* ── Reduced Motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .prd-page { animation: none; }
+
+  .prd-drawer,
+  .prd-drawer-backdrop {
+    animation: none;
+  }
+
+  .prd-toggle-btn,
+  .prd-editor,
+  .prd-icon-btn,
+  .prd-version-row {
+    transition: none;
+  }
 }

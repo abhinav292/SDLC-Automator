@@ -1,3 +1,9 @@
+/* ────────────────────────────────────────────────────────
+   Handoff.css — Artifacts & Sync page
+   Priority Liquid Glass · glass cards + neumorphic wells
+   Tokens live in src/index.css; this file only consumes them.
+   ──────────────────────────────────────────────────────── */
+
 .handoff-dashboard {
   display: flex;
   flex-direction: column;
@@ -11,34 +17,234 @@
   width: 100%;
 }
 
+/* ── Artifact cards ───────────────────────────────────
+   Ride on .card (liquid glass); only layout + hover here. */
 .artifact-card {
   padding: var(--spacing-5);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .artifact-card:hover {
-  border-color: var(--border-hover);
+  border-color: rgba(127, 209, 192, 0.32);
   transform: translateY(-2px);
-  box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--glass-highlight),
+              0 10px 24px -8px rgba(0, 0, 0, 0.5),
+              0 0 20px -8px rgba(95, 191, 169, 0.3);
 }
 
+/* ── Sync progress = neumorphic inset well ───────────── */
 .sync-progress-grid {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   width: 100%;
+  background: #0E2B20;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--neu-inset);
+  padding: var(--spacing-4);
 }
 
 .sync-phase {
-  transition: all 0.3s ease;
+  padding: 0.6rem 0.75rem;
+  min-height: 44px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: rgba(150, 220, 195, 0.03);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Artifact results grid */
+/* Teal-tinted monospace log labels */
+.sync-phase span {
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+}
+
+.sync-phase--done {
+  border-color: rgba(67, 214, 149, 0.28);
+  background: rgba(67, 214, 149, 0.06);
+}
+
+.sync-phase--done span {
+  color: #9FD3C0;
+}
+
+.sync-phase--active {
+  border-color: rgba(95, 191, 169, 0.5);
+  background: rgba(95, 191, 169, 0.08);
+}
+
+.sync-phase--active span {
+  color: var(--text-primary);
+}
+
+.sync-phase--error {
+  border-color: rgba(240, 122, 106, 0.3);
+  background: rgba(240, 122, 106, 0.07);
+}
+
+.sync-phase--waiting {
+  opacity: 0.4;
+}
+
+.sync-phase--skipped {
+  border-color: var(--border-subtle);
+  background: rgba(150, 220, 195, 0.04);
+  opacity: 0.75;
+}
+
+.sync-phase--skipped span {
+  color: var(--text-tertiary);
+}
+
+/* ── Neumorphic inset wells (rows, targets, email) ───── */
+.publish-target,
+.artifact-item,
+.email-well {
+  background: #0E2B20;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: var(--radius-md);
+  box-shadow: var(--neu-inset);
+  padding: 0.75rem;
+}
+
+.publish-target {
+  min-height: 44px;
+}
+
+.email-well--body {
+  white-space: pre-wrap;
+  line-height: 1.7;
+  min-height: 120px;
+}
+
+/* Long ticket URLs / keys in email content wrap instead of overflowing */
+.email-well {
+  overflow-wrap: anywhere;
+}
+
+/* ── Confirm-gate stat tiles (neumorphic raised) ─────── */
+.handoff-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.handoff-stat {
+  background: var(--neu-surface);
+  border: 1px solid rgba(170, 225, 205, 0.08);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--neu-raised-sm);
+  padding: 0.85rem 0.75rem;
+  text-align: center;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.handoff-stat:hover {
+  transform: translateY(-1px);
+}
+
+/* ── Error summary card (tinted glass) ───────────────── */
+.card--error {
+  background: linear-gradient(160deg, rgba(56, 24, 19, 0.55), rgba(26, 10, 8, 0.7));
+  border-color: rgba(240, 122, 106, 0.35);
+}
+
+.error-list {
+  list-style: disc;
+  padding-left: 1.25rem;
+  color: #F5A297;
+}
+
+.error-list li + li {
+  margin-top: 0.25rem;
+}
+
+/* ── Success orb (done state) ────────────────────────── */
+.success-orb {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-full);
+  background: rgba(67, 214, 149, 0.14);
+  border: 1px solid rgba(67, 214, 149, 0.3);
+  box-shadow: var(--neu-raised-sm), 0 0 26px -6px rgba(67, 214, 149, 0.45);
+}
+
+/* ── Generated code (neumorphic log wells) ───────────── */
+.code-file {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.code-file-header {
+  padding: 0.5rem 0.75rem;
+  min-height: 40px;
+  background: var(--neu-surface);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.code-file-header:hover {
+  background: var(--bg-interactive-hover);
+}
+
+.code-block {
+  margin: 0;
+  padding: 0.85rem;
+  background: #081F17;
+  box-shadow: var(--neu-inset);
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  color: #9FD3C0;
+  line-height: 1.65;
+}
+
+/* ── Email modal overlay ─────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(4, 16, 11, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 1rem;
+}
+
+/* backdrop-filter fallback — darker scrim when blur is unsupported */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .modal-overlay {
+    background: rgba(4, 16, 11, 0.88);
+  }
+}
+
+/* Icon-only modal buttons (e.g. close X) keep a finger-sized hit area */
+.modal-overlay .btn {
+  min-width: 40px;
+}
+
+/* ── Inline text link (button element) ───────────────── */
+.inline-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-primary);
+  transition: color 0.2s ease;
+}
+
+.inline-link:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+/* ── Artifact results grid ───────────────────────────── */
 .artifacts-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -53,10 +259,222 @@
   background-color: var(--bg-surface-elevated);
 }
 
+/* ── Page-scoped helpers (no Tailwind in this project) ─ */
+.handoff-dashboard .text-info { color: var(--color-info); }
+.handoff-dashboard .text-tertiary { color: var(--text-tertiary); }
+.handoff-dashboard .text-error { color: var(--color-error); }
+.handoff-dashboard .text-primary { color: var(--color-primary); }
+.handoff-dashboard a.text-secondary:hover,
+.handoff-dashboard a.text-primary:hover { color: var(--color-primary-hover); }
+
+.handoff-dashboard .font-mono {
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+}
+
+.handoff-dashboard .text-3xl { font-size: 1.875rem; }
+.handoff-dashboard .text-2xl { font-size: 1.5rem; }
+.handoff-dashboard .text-lg { font-size: 1.0625rem; }
+.handoff-dashboard .text-base { font-size: 0.9375rem; }
+.handoff-dashboard .font-bold { font-weight: 700; }
+.handoff-dashboard .font-semibold { font-weight: 600; }
+.handoff-dashboard .font-medium { font-weight: 500; }
+.handoff-dashboard .font-normal { font-weight: 400; }
+.handoff-dashboard .uppercase { text-transform: uppercase; }
+.handoff-dashboard .normal-case { text-transform: none; }
+.handoff-dashboard .tracking-wide { letter-spacing: 0.05em; }
+.handoff-dashboard .whitespace-nowrap { white-space: nowrap; }
+.handoff-dashboard .whitespace-pre-wrap { white-space: pre-wrap; }
+.handoff-dashboard .leading-relaxed { line-height: 1.65; }
+.handoff-dashboard .text-center { text-align: center; }
+.handoff-dashboard .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.handoff-dashboard .min-w-0 { min-width: 0; }
+.handoff-dashboard .flex-shrink-0 { flex-shrink: 0; }
+.handoff-dashboard .flex-1 { flex: 1 1 0%; min-height: 0; }
+.handoff-dashboard .w-full { width: 100%; }
+.handoff-dashboard .justify-end { justify-content: flex-end; }
+.handoff-dashboard .max-w-md { max-width: 28rem; }
+.handoff-dashboard .overflow-y-auto { overflow-y: auto; }
+.handoff-dashboard .overflow-x-auto { overflow-x: auto; }
+.handoff-dashboard .overflow-hidden { overflow: hidden; }
+
+.handoff-dashboard .mb-2 { margin-bottom: 0.5rem; }
+.handoff-dashboard .mb-3 { margin-bottom: 0.75rem; }
+.handoff-dashboard .mb-5 { margin-bottom: 1.25rem; }
+.handoff-dashboard .mb-6 { margin-bottom: 1.5rem; }
+.handoff-dashboard .mb-8 { margin-bottom: 2rem; }
+.handoff-dashboard .mt-1 { margin-top: 0.25rem; }
+.handoff-dashboard .mt-2 { margin-top: 0.5rem; }
+.handoff-dashboard .mt-3 { margin-top: 0.75rem; }
+.handoff-dashboard .mt-4 { margin-top: 1rem; }
+.handoff-dashboard .mt-6 { margin-top: 1.5rem; }
+.handoff-dashboard .mt-0\.5 { margin-top: 0.125rem; }
+.handoff-dashboard .mt-1\.5 { margin-top: 0.375rem; }
+.handoff-dashboard .ml-2 { margin-left: 0.5rem; }
+.handoff-dashboard .ml-3 { margin-left: 0.75rem; }
+.handoff-dashboard .ml-auto { margin-left: auto; }
+.handoff-dashboard .pl-1 { padding-left: 0.25rem; }
+
+.handoff-dashboard .p-2 { padding: 0.5rem; }
+.handoff-dashboard .p-3 { padding: 0.75rem; }
+.handoff-dashboard .p-1\.5 { padding: 0.375rem; }
+.handoff-dashboard .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.handoff-dashboard .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+.handoff-dashboard .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+.handoff-dashboard .px-8 { padding-left: 2rem; padding-right: 2rem; }
+.handoff-dashboard .px-1\.5 { padding-left: 0.375rem; padding-right: 0.375rem; }
+.handoff-dashboard .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.handoff-dashboard .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+.handoff-dashboard .py-0\.5 { padding-top: 0.125rem; padding-bottom: 0.125rem; }
+.handoff-dashboard .py-1\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+
+.handoff-dashboard .rounded { border-radius: var(--radius-sm); }
+.handoff-dashboard .rounded-lg { border-radius: var(--radius-md); }
+.handoff-dashboard .rounded-full { border-radius: var(--radius-full); }
+
+.handoff-dashboard .hidden { display: none; }
+@media (min-width: 640px) {
+  .handoff-dashboard .sm\:block { display: block; }
+}
+
+/* ── Publish gate panels (sign-offs / permission / figma / resume) ── */
+.gate-panel {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: rgba(150, 220, 195, 0.04);
+  padding: 0.75rem 0.85rem;
+}
+
+.gate-panel--blocking {
+  border-color: rgba(232, 196, 104, 0.3);
+  background: rgba(232, 196, 104, 0.06);
+}
+
+.gate-panel--warning {
+  border-color: rgba(232, 196, 104, 0.22);
+  background: rgba(232, 196, 104, 0.04);
+}
+
+.gate-panel--info {
+  border-color: rgba(86, 184, 216, 0.25);
+  background: rgba(86, 184, 216, 0.05);
+}
+
+.gate-list {
+  list-style: disc;
+  padding-left: 1.1rem;
+  color: var(--text-secondary);
+}
+
+.gate-list li + li {
+  margin-top: 0.2rem;
+}
+
+/* ── Publish run log notes (linked issues / resumed manifests) ── */
+.publish-notes {
+  width: 100%;
+  background: rgba(86, 184, 216, 0.05);
+  border: 1px solid rgba(86, 184, 216, 0.2);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+}
+
+.publish-notes p {
+  font-family: 'SF Mono', ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.publish-notes p + p {
+  margin-top: 0.3rem;
+}
+
+/* ── Publish history panel ───────────────────────────── */
+.publish-history {
+  width: 100%;
+}
+
+.publish-history-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* ── Rollback modal table (scrolls inside its own container) ── */
+.rollback-table-wrap {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  max-height: 40vh;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.rollback-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  min-width: 480px;
+}
+
+.rollback-table th {
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--neu-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.rollback-table td {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+
+.rollback-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.rollback-table td a {
+  color: var(--color-primary);
+}
+
+.rollback-table td a:hover {
+  text-decoration: underline;
+}
+
+/* Destructive confirm button — keeps .btn sizing, error tint */
+.btn-danger-solid {
+  background: linear-gradient(135deg, #E2685A, #B94437);
+  border-color: rgba(240, 122, 106, 0.5);
+  color: #FFF4F1;
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  background: linear-gradient(135deg, #EA7365, #C44E41);
+}
+
+.btn-danger-solid:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Responsive ──────────────────────────────────────── */
 @media (max-width: 900px) {
   .artifacts-grid {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .sync-progress-grid {
+    padding: var(--spacing-3);
   }
 }
 
@@ -69,5 +487,39 @@
     min-height: 60vh;
     justify-content: flex-start;
     padding-top: 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .handoff-stat-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .handoff-stat {
+    padding: 0.65rem 0.5rem;
+  }
+
+  .handoff-dashboard .px-8 { padding-left: 1.25rem; padding-right: 1.25rem; }
+}
+
+/* ── backdrop-filter fallback — error card gets an opaque tint ── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .card--error {
+    background: linear-gradient(160deg, rgba(56, 24, 19, 0.96), rgba(26, 10, 8, 0.98));
+  }
+}
+
+/* ── Reduced Motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .handoff-dashboard,
+  .artifact-card,
+  .artifact-card:hover,
+  .handoff-stat,
+  .handoff-stat:hover,
+  .sync-phase {
+    animation: none;
+    transition: none;
+    transform: none;
   }
 }

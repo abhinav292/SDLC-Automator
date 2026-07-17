@@ -1,4 +1,4 @@
-import { extractStoriesFromAI } from './apiService';
+import { extractStoriesFromAI, mergeStories } from './apiService';
 
 let storyCounter = 1;
 const generateId = () => `story-${storyCounter++}`;
@@ -111,14 +111,61 @@ const normaliseStory = (s, i) => ({
   solution: coerceSolutionOptions(s.solution),
   epic: typeof s.epic === 'string' ? s.epic.trim() : '',
   dependencies: Array.isArray(s.dependencies) ? s.dependencies.filter(d => typeof d === 'string') : [],
-  status: 'pending'
+  status: 'pending',
+  // Grounded-extraction fields (optional — only present when the AI provides them)
+  ...(Number.isFinite(s.confidence) ? { confidence: Math.max(0, Math.min(1, s.confidence)) } : {}),
+  ...(Array.isArray(s.sourceQuotes) ? {
+    sourceQuotes: s.sourceQuotes
+      .filter(q => q && typeof q.quote === 'string' && q.quote)
+      .map(q => ({ quote: q.quote, file: typeof q.file === 'string' ? q.file : '' }))
+      .slice(0, 3)
+  } : {}),
+  ...(typeof s.prdSection === 'string' && s.prdSection ? { prdSection: s.prdSection } : {})
 });
 
-export const extractStoriesFromFiles = async (texts) => {
+const coerceContradictions = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(c => c && typeof c === 'object')
+    .map(c => ({
+      topic: typeof c.topic === 'string' ? c.topic : '',
+      a: typeof c.a === 'string' ? c.a : '',
+      b: typeof c.b === 'string' ? c.b : '',
+      files: Array.isArray(c.files) ? c.files.filter(f => typeof f === 'string') : []
+    }))
+    .filter(c => c.topic || c.a || c.b);
+};
+
+export const extractStoriesFromFiles = async (texts, fileNames = []) => {
   const combined = texts.join('\n\n---\n\n');
 
+  // Multi-file map-reduce: extract per file in parallel, then AI-merge the sets.
+  // Any failure falls through to the single-call concat behavior below.
+  if (Array.isArray(texts) && texts.length > 1) {
+    try {
+      const perFile = await Promise.all(
+        texts.map((text, i) => extractStoriesFromAI(text, fileNames[i] ? [fileNames[i]] : []))
+      );
+      const storySets = perFile.map(r => (Array.isArray(r.stories) ? r.stories : []));
+      if (storySets.some(set => set.length > 0)) {
+        const merged = await mergeStories(storySets, fileNames);
+        const raw = Array.isArray(merged.stories) ? merged.stories : [];
+        if (raw.length > 0) {
+          return {
+            // Re-id so per-file id collisions ("story-1" from each file) can't clash
+            stories: raw.map((s, i) => normaliseStory({ ...s, id: `story-${i + 1}` }, i)),
+            truncated: perFile.some(r => Boolean(r.truncated)),
+            contradictions: coerceContradictions(merged.contradictions)
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Multi-file merge failed, falling back to combined extraction:', err.message);
+    }
+  }
+
   try {
-    const result = await extractStoriesFromAI(combined, []);
+    const result = await extractStoriesFromAI(combined, fileNames);
     const raw = result.stories || [];
     if (!Array.isArray(raw) || raw.length === 0) {
       console.warn('AI returned empty or non-array stories, falling back to local parser');

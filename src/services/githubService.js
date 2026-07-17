@@ -96,6 +96,34 @@ export const createGithubPR = async (owner, repo, branchName, storyTitle, checkl
   }
 };
 
+export const deleteGithubBranch = async (owner, repo, branch) => {
+  if (!owner || !repo || !branch) return { success: false, error: 'GitHub owner, repository and branch are required.' };
+  try {
+    const res = await fetch(`${API}/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) return { success: true };
+    return { success: false, error: await ghError(res) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+export const closeGithubPR = async (owner, repo, number) => {
+  if (!owner || !repo || !number) return { success: false, error: 'GitHub owner, repository and PR number are required.' };
+  try {
+    const res = await fetch(`${API}/repos/${owner}/${repo}/pulls/${encodeURIComponent(number)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: 'closed' })
+    });
+    if (res.ok) return { success: true };
+    return { success: false, error: await ghError(res) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
 export const getGithubRepos = async () => {
   try {
     const res = await fetch(`${API}/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`);

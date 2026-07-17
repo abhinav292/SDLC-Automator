@@ -1,3 +1,9 @@
+/* ────────────────────────────────────────────────────────
+   Settings.css — Priority Liquid Glass
+   Glass section cards · neumorphic controls · teal/citrus accents
+   Tokens live in src/index.css.
+   ──────────────────────────────────────────────────────── */
+
 .settings-page {
   animation: fadeIn 0.4s ease-out;
   display: flex;
@@ -8,29 +14,42 @@
   margin: 0 auto;
 }
 
-/* ── Sidebar Navigation ─────────────────────────────── */
+/* ── Sidebar Navigation (liquid glass) ──────────────── */
 .settings-sidebar {
   width: 260px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
-  border: 1px solid var(--border-subtle);
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-xl);
+  box-shadow: var(--glass-highlight), var(--shadow-md);
   padding: 1rem;
   height: fit-content;
   position: sticky;
   top: 1.5rem;
 }
 
+/* Specular sheen wash */
+.settings-sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 35%, transparent 60%);
+  pointer-events: none;
+}
+
 .settings-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
+  min-height: 44px;
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 0.875rem;
@@ -47,11 +66,28 @@
   border-color: var(--border-subtle);
 }
 
+.settings-nav-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
+
+/* Active = glass pill with gradient left-edge indicator */
 .settings-nav-item.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.05));
+  background: linear-gradient(135deg, rgba(95, 191, 169, 0.14), rgba(217, 226, 142, 0.05));
   color: var(--color-primary-hover);
-  border-color: rgba(99, 102, 241, 0.2);
-  box-shadow: 0 0 12px -4px rgba(99, 102, 241, 0.25);
+  border-color: rgba(95, 191, 169, 0.28);
+  box-shadow: var(--glass-highlight), 0 0 14px -4px rgba(95, 191, 169, 0.35);
+}
+
+.settings-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--brand-gradient);
 }
 
 /* ── Content Area ───────────────────────────────────── */
@@ -80,18 +116,35 @@
   font-size: 0.875rem;
 }
 
-/* ── Modern Card Styles ───────────────────────────── */
+/* ── Section Cards (liquid glass) ───────────────────── */
 .settings-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-xl);
   padding: 1.75rem;
   margin-bottom: 1.75rem;
-  transition: all 0.2s ease;
+  box-shadow: var(--glass-highlight), var(--shadow-sm);
+  transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.settings-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 35%, transparent 60%);
+  pointer-events: none;
 }
 
 .settings-card:hover {
-  border-color: var(--border-hover);
+  border-color: rgba(127, 209, 192, 0.3);
+  box-shadow: var(--glass-highlight), 0 10px 26px -8px rgba(0, 0, 0, 0.5), 0 0 20px -8px rgba(95, 191, 169, 0.28);
+  transform: translateY(-1px);
 }
 
 .settings-grid {
@@ -101,6 +154,7 @@
 }
 
 /* ── Input Groups ─────────────────────────────────── */
+/* Inputs themselves use the global neumorphic .input-field — no overrides here. */
 .input-group {
   margin-bottom: 1.5rem;
 }
@@ -119,7 +173,7 @@
 
 .input-hint {
   font-size: 0.72rem;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   margin-top: 0.5rem;
   line-height: 1.5;
 }
@@ -145,27 +199,40 @@
 }
 
 .status-badge.ok {
-  background: rgba(34, 197, 94, 0.08);
-  color: #4ade80;
-  border: 1px solid rgba(34, 197, 94, 0.15);
+  background: rgba(67, 214, 149, 0.12);
+  color: #7CE4B4;
+  border: 1px solid rgba(67, 214, 149, 0.25);
 }
 
 .status-badge.error {
-  background: rgba(244, 63, 94, 0.08);
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.15);
+  background: rgba(240, 122, 106, 0.12);
+  color: #F5A297;
+  border: 1px solid rgba(240, 122, 106, 0.25);
 }
 
 .status-badge.idle {
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-muted);
+  background: rgba(150, 220, 195, 0.05);
+  color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
+}
+
+/* ── Diagnostics result well ─────────────────────── */
+.diag-result.ok {
+  background: rgba(67, 214, 149, 0.1);
+  color: var(--color-success);
+  border: 1px solid rgba(67, 214, 149, 0.2);
+}
+
+.diag-result.error {
+  background: rgba(240, 122, 106, 0.1);
+  color: var(--color-error);
+  border: 1px solid rgba(240, 122, 106, 0.2);
 }
 
 /* ── Tooltips & Info ─────────────────────────────── */
 .info-icon {
   cursor: help;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   transition: color 0.2s ease;
 }
 
@@ -173,33 +240,12 @@
   color: var(--color-primary);
 }
 
-/* ── Responsive ──────────────────────────────────── */
-@media (max-width: 1024px) {
-  .settings-page {
-    flex-direction: column;
-    padding: 0 1rem;
-  }
-
-  .settings-sidebar {
-    width: 100%;
-    flex-direction: row;
-    overflow-x: auto;
-    position: static;
-    padding: 0.75rem;
-  }
-
-  .settings-nav-item {
-    white-space: nowrap;
-    padding: 0.6rem 1rem;
-  }
-}
-
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Provider selector chips (AI & Git tabs) ─────────────── */
+/* ── Provider selector chips (neumorphic) ─────────────────── */
 .provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
@@ -213,26 +259,40 @@
   justify-content: center;
   gap: 0.4rem;
   padding: 0.6rem 0.5rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.02);
+  min-height: 40px;
+  border: 1px solid rgba(170, 225, 205, 0.08);
+  border-radius: var(--radius-md);
+  background: var(--neu-surface);
+  box-shadow: var(--neu-raised-sm);
   color: var(--text-secondary);
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .provider-chip:hover {
-  border-color: var(--border-hover, rgba(255, 255, 255, 0.2));
+  transform: translateY(-1px);
+  border-color: var(--border-hover);
   color: var(--text-primary);
 }
 
+.provider-chip:active {
+  transform: translateY(0);
+  box-shadow: var(--neu-inset);
+}
+
+.provider-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--neu-raised-sm), 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
+
+/* Selected = pressed-in neumorphic well with teal ring */
 .provider-chip.active {
-  border-color: rgba(99, 102, 241, 0.6);
-  background: rgba(99, 102, 241, 0.12);
-  color: #fff;
-  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.25);
+  border-color: rgba(95, 191, 169, 0.5);
+  background: #0E2B20;
+  color: var(--text-primary);
+  box-shadow: var(--neu-inset), 0 0 0 1px rgba(95, 191, 169, 0.25);
 }
 
 .provider-chip-dot {
@@ -241,4 +301,271 @@
   border-radius: 50%;
   background: var(--color-success);
   flex-shrink: 0;
+}
+
+/* ── Governance & Delivery — toggle rows (neumorphic) ─────── */
+.gov-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(170, 225, 205, 0.08);
+  border-radius: var(--radius-md);
+  background: var(--neu-surface);
+  box-shadow: var(--neu-raised-sm);
+}
+
+.gov-toggle-text {
+  min-width: 0;
+}
+
+.gov-toggle-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.gov-toggle-desc {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  margin-top: 0.3rem;
+}
+
+/* Accessible switch: button[role="switch"] */
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--neu-surface);
+  box-shadow: var(--neu-inset);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease;
+}
+
+.toggle-switch.on {
+  background: linear-gradient(135deg, rgba(95, 191, 169, 0.35), rgba(217, 226, 142, 0.18));
+  border-color: rgba(95, 191, 169, 0.5);
+}
+
+.toggle-switch.on .toggle-knob {
+  transform: translateX(20px);
+  background: var(--color-primary);
+}
+
+.toggle-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--neu-inset), 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
+
+/* ── Scoped utility shim ─────────────────────────────
+   Settings.jsx uses Tailwind-style utility classes but the
+   project has no Tailwind; define the ones this page needs,
+   scoped to .settings-page so nothing leaks globally. */
+.settings-page .grid { display: grid; }
+.settings-page .grid-cols-1 { grid-template-columns: 1fr; }
+.settings-page .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.settings-page .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.settings-page .flex-wrap { flex-wrap: wrap; }
+.settings-page .items-start { align-items: flex-start; }
+.settings-page .flex-1 { flex: 1 1 0%; min-width: 0; }
+.settings-page .flex-shrink-0 { flex-shrink: 0; }
+.settings-page .w-full { width: 100%; }
+.settings-page .w-4 { width: 1rem; }
+.settings-page .h-4 { height: 1rem; }
+.settings-page .max-w-\[220px\] { max-width: 220px; }
+.settings-page .relative { position: relative; }
+.settings-page .absolute { position: absolute; }
+.settings-page .left-3 { left: 0.75rem; }
+.settings-page .top-1\/2 { top: 50%; }
+.settings-page .-translate-y-1\/2 { transform: translateY(-50%); }
+.settings-page .block { display: block; }
+.settings-page .inline { display: inline; }
+.settings-page .text-left { text-align: left; }
+.settings-page .text-center { text-align: center; }
+.settings-page .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.settings-page .p-3 { padding: 0.75rem; }
+.settings-page .p-4 { padding: 1rem; }
+.settings-page .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.settings-page .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+.settings-page .py-0\.5 { padding-top: 0.125rem; padding-bottom: 0.125rem; }
+.settings-page .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.settings-page .py-1\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+.settings-page .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+.settings-page .pt-6 { padding-top: 1.5rem; }
+.settings-page .pl-10 { padding-left: 2.5rem; }
+.settings-page .mb-0 { margin-bottom: 0; }
+.settings-page .mb-1 { margin-bottom: 0.25rem; }
+.settings-page .mb-2 { margin-bottom: 0.5rem; }
+.settings-page .mb-3 { margin-bottom: 0.75rem; }
+.settings-page .mb-4 { margin-bottom: 1rem; }
+.settings-page .mb-6 { margin-bottom: 1.5rem; }
+.settings-page .mt-0\.5 { margin-top: 0.125rem; }
+.settings-page .mt-1 { margin-top: 0.25rem; }
+.settings-page .mt-2 { margin-top: 0.5rem; }
+.settings-page .mt-4 { margin-top: 1rem; }
+.settings-page .mt-auto { margin-top: auto; }
+.settings-page .ml-1 { margin-left: 0.25rem; }
+.settings-page .ml-2 { margin-left: 0.5rem; }
+.settings-page .mr-1 { margin-right: 0.25rem; }
+.settings-page .mr-2 { margin-right: 0.5rem; }
+
+.settings-page .text-\[10px\] { font-size: 10px; }
+.settings-page .text-xs { font-size: 0.75rem; }
+.settings-page .text-sm { font-size: 0.875rem; }
+.settings-page .text-lg { font-size: 1.125rem; }
+.settings-page .text-xl { font-size: 1.25rem; }
+.settings-page .text-2xl { font-size: 1.5rem; }
+.settings-page .uppercase { text-transform: uppercase; letter-spacing: 0.05em; }
+.settings-page .font-normal { font-weight: 400; }
+.settings-page .font-medium { font-weight: 500; }
+.settings-page .font-semibold { font-weight: 600; }
+.settings-page .font-bold { font-weight: 700; }
+.settings-page .font-mono { font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace; }
+.settings-page .text-secondary { color: var(--text-secondary); }
+.settings-page .text-tertiary { color: var(--text-tertiary); }
+
+.settings-page .opacity-50 { opacity: 0.5; }
+.settings-page .opacity-60 { opacity: 0.6; }
+.settings-page .pointer-events-none { pointer-events: none; }
+.settings-page .cursor-pointer { cursor: pointer; }
+.settings-page .select-none { user-select: none; }
+.settings-page .rounded-lg { border-radius: var(--radius-sm); }
+.settings-page .rounded-xl { border-radius: var(--radius-md); }
+.settings-page .rounded-2xl { border-radius: var(--radius-lg); }
+.settings-page .hover\:underline:hover { text-decoration: underline; }
+.settings-page .transition-colors { transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease; }
+
+.settings-page input[type='checkbox'] { accent-color: var(--color-primary); }
+
+/* ── Responsive ──────────────────────────────────── */
+@media (max-width: 1024px) {
+  .settings-page {
+    flex-direction: column;
+    padding: 0 1rem;
+  }
+
+  .settings-sidebar {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    position: static;
+    padding: 0.75rem;
+  }
+
+  .settings-nav-item {
+    white-space: nowrap;
+    padding: 0.6rem 1rem;
+  }
+
+  /* In the horizontal rail the save button sits at the end */
+  .settings-sidebar .mt-auto {
+    margin-top: 0;
+    margin-left: auto;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .settings-page {
+    gap: 1.25rem;
+  }
+
+  .settings-grid,
+  .settings-page .grid-cols-2,
+  .settings-page .grid-cols-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card {
+    padding: 1.25rem;
+  }
+
+  .provider-grid {
+    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .settings-sidebar {
+    padding: 0.6rem;
+  }
+
+  .settings-nav-item {
+    padding: 0.6rem 0.8rem;
+  }
+
+  .settings-card {
+    padding: 1rem;
+  }
+
+  .settings-section-header h2 {
+    font-size: 1.3rem;
+  }
+
+  .settings-page .max-w-\[220px\] {
+    max-width: 100%;
+  }
+
+  .gov-toggle-row {
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+}
+
+/* ── backdrop-filter fallback — opaque surfaces when blur is unsupported ── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .settings-sidebar,
+  .settings-card {
+    background: linear-gradient(160deg, rgba(22, 56, 42, 0.96), rgba(8, 31, 23, 0.98));
+  }
+}
+
+/* ── Reduced Motion ──────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .settings-page,
+  .settings-content {
+    animation: none;
+  }
+
+  .settings-card,
+  .settings-card:hover,
+  .settings-nav-item,
+  .provider-chip,
+  .provider-chip:hover,
+  .toggle-switch,
+  .toggle-knob {
+    transition: none;
+  }
+
+  .settings-card,
+  .settings-card:hover,
+  .settings-nav-item,
+  .provider-chip,
+  .provider-chip:hover {
+    transform: none;
+  }
 }
