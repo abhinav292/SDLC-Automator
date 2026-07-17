@@ -70,3 +70,19 @@ export const generateCode = (story, repoContext) =>
 // Solutioning document generation from all stories + repo context
 export const generateSolutioningDoc = (stories, repoContext, projectName) =>
   request('POST', '/generate-solutioning-doc', { stories, repoContext, projectName });
+
+// AI PRD linter (ambiguity/conflict/gap annotations)
+export const lintPrd = (prdText) =>
+  request('POST', '/lint-prd', { prdText });
+
+// Multi-transcript map-reduce: merge per-file story sets into one reconciled set
+export const mergeStories = (storySets, fileNames) =>
+  request('POST', '/merge-stories', { storySets, fileNames });
+
+// AI summary of a PRD version diff
+export const summarizeDiff = (oldText, newText) =>
+  request('POST', '/summarize-diff', { oldText, newText });
+
+// Slack intake inbox
+export const fetchIntake = () => request('GET', '/intake');
+export const dismissIntake = (id) => request('DELETE', `/intake/${id}`);

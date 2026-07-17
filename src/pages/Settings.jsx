@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Settings as SettingsIcon, CheckCircle, AlertTriangle, Loader2,
   ExternalLink, RefreshCw, GitBranch, FileText, CheckSquare, Bell, TrendingUp,
-  FlaskConical, Workflow, Code2, Key, Cpu, Layers, Info, ShieldCheck, Mail, Search
+  FlaskConical, Workflow, Code2, Key, Cpu, Layers, Info, ShieldCheck, Mail, Search,
+  Package, EyeOff, UserCheck, PenTool, Users
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { getJiraProjects, getJiraBaseUrl, getJiraVelocity } from '../services/jiraService';
@@ -72,6 +74,7 @@ const GIT_PROVIDER_META = {
   gitlab: { label: 'GitLab', tokenHint: "Personal access token with 'api' scope." }
 };
 
+/* global __ATLASSIAN_DOMAIN__, __ATLASSIAN_EMAIL__, __JIRA_PROJECT_KEY__ */
 const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
 const EMAIL = typeof __ATLASSIAN_EMAIL__ !== 'undefined' ? __ATLASSIAN_EMAIL__ : '';
 const JIRA_KEY = typeof __JIRA_PROJECT_KEY__ !== 'undefined' ? __JIRA_PROJECT_KEY__ : 'KAN';
@@ -96,11 +99,11 @@ export const Settings = () => {
   const { settings, saveSettings } = useApp();
   const [activeTab, setActiveTab] = useState('integrations');
   const [jiraStatus, setJiraStatus] = useState('idle');
-  const [jiraError, setJiraError] = useState(null);
+  const [, setJiraError] = useState(null);
   const [confluenceStatus, setConfluenceStatus] = useState('idle');
-  const [confluenceError, setConfluenceError] = useState(null);
+  const [, setConfluenceError] = useState(null);
   const [bitbucketStatus, setBitbucketStatus] = useState('idle');
-  const [bitbucketError, setBitbucketError] = useState(null);
+  const [, setBitbucketError] = useState(null);
   const [jiraProjects, setJiraProjects] = useState([]);
   const [confluenceSpaces, setConfluenceSpaces] = useState([]);
   const [bbWorkspaces, setBbWorkspaces] = useState([]);
@@ -132,7 +135,12 @@ export const Settings = () => {
     projectName: settings.projectName || '',
     aiModel: settings.aiModel || 'anthropic.claude-3-sonnet-20240229-v1:0',
     aiProvider: settings.aiProvider || 'bedrock',
-    awsRegion: settings.awsRegion || 'ap-south-1'
+    awsRegion: settings.awsRegion || 'ap-south-1',
+    // Governance & Delivery (defaults mirror AppContext featureFlags)
+    handoffMode: settings.handoffMode || 'packets',
+    redactionEnabled: settings.redactionEnabled !== false,
+    soloMode: settings.soloMode === true,
+    figmaToken: settings.figmaToken || ''
   });
   const [saved, setSaved] = useState(false);
   const [atlassianToken, setAtlassianToken] = useState('');
@@ -161,38 +169,6 @@ export const Settings = () => {
     geminiKey: [geminiKey, setGeminiKey],
     bedrockApiKey: [bedrockApiKey, setBedrockApiKey]
   };
-
-  useEffect(() => {
-    testConnections();
-    // Load AI + Git config from the backend (key presence + current provider/model)
-    fetch('/api/backend/ai-config')
-      .then(r => r.ok ? r.json() : null)
-      .then(cfg => {
-        if (!cfg) return;
-        setAiConfig(cfg);
-        setForm(f => ({
-          ...f,
-          aiProvider: settings.aiProvider || cfg.provider || f.aiProvider,
-          aiModel: settings.aiModel || cfg.model || f.aiModel,
-          gitProvider: settings.gitProvider || cfg.gitProvider || f.gitProvider
-        }));
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (form.bbWorkspace) loadBbRepos(form.bbWorkspace);
-  }, [form.bbWorkspace]);
-
-  useEffect(() => {
-    if (form.bbWorkspace && form.bbRepo) loadBbBranches(form.bbWorkspace, form.bbRepo);
-  }, [form.bbWorkspace, form.bbRepo]);
-
-  useEffect(() => {
-    if (activeTab === 'ai' && form.aiProvider === 'openrouter' && availableModels.length === 0 && !isSyncingModels) {
-      fetchOpenRouterModels();
-    }
-  }, [activeTab, form.aiProvider]);
 
   const onAiProviderChange = (provider) => {
     const cfg = AI_PROVIDER_CONFIG[provider];
@@ -316,6 +292,43 @@ export const Settings = () => {
     setIsSyncingModels(false);
   };
 
+  // Effects live below the callbacks they invoke so each function is declared
+  // before it is referenced (react-hooks/immutability).
+  useEffect(() => {
+    testConnections();
+    // Load AI + Git config from the backend (key presence + current provider/model)
+    fetch('/api/backend/ai-config')
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) return;
+        setAiConfig(cfg);
+        setForm(f => ({
+          ...f,
+          aiProvider: settings.aiProvider || cfg.provider || f.aiProvider,
+          aiModel: settings.aiModel || cfg.model || f.aiModel,
+          gitProvider: settings.gitProvider || cfg.gitProvider || f.gitProvider
+        }));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch-on-change; loading flags are set intentionally
+    if (form.bbWorkspace) loadBbRepos(form.bbWorkspace);
+  }, [form.bbWorkspace]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch-on-change; loading flags are set intentionally
+    if (form.bbWorkspace && form.bbRepo) loadBbBranches(form.bbWorkspace, form.bbRepo);
+  }, [form.bbWorkspace, form.bbRepo]);
+
+  useEffect(() => {
+    if (activeTab === 'ai' && form.aiProvider === 'openrouter' && availableModels.length === 0 && !isSyncingModels) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch-on-change; loading flags are set intentionally
+      fetchOpenRouterModels();
+    }
+  }, [activeTab, form.aiProvider]);
+
   const handleSave = async () => {
     saveSettings(form);
 
@@ -358,7 +371,7 @@ export const Settings = () => {
     { id: 'integrations', label: 'Integrations', icon: <Workflow size={18} />, description: 'Jira & Confluence' },
     { id: 'git', label: 'Git & Sync', icon: <Code2 size={18} />, description: 'Bitbucket repository' },
     { id: 'ai', label: 'AI Platform', icon: <Cpu size={18} />, description: 'Model configuration' },
-    { id: 'advanced', label: 'Advanced', icon: <Layers size={18} />, description: 'Calibration & Alerts' },
+    { id: 'advanced', label: 'Advanced', icon: <Layers size={18} />, description: 'Governance & Calibration' },
   ];
 
   const renderIntegrations = () => (
@@ -372,7 +385,7 @@ export const Settings = () => {
       <div className="settings-card">
         <div className="status-header">
           <div className="flex items-center gap-3">
-            <CheckSquare size={20} className="text-blue-400" />
+            <CheckSquare size={20} color="var(--color-info)" />
             <h3 className="font-bold text-lg">Jira Cloud</h3>
           </div>
           <div className="flex items-center gap-2">
@@ -407,9 +420,9 @@ export const Settings = () => {
         </div>
 
         {jiraStatus === 'ok' && (
-          <div className="mt-4 p-4 rounded-xl bg-blue-500/5 border border-blue-500/10">
+          <div className="mt-4 p-4 rounded-xl neu-inset">
             <p className="text-sm font-medium mb-3 flex items-center justify-between">
-              Connected Project: <span className="text-blue-400 font-mono">{JIRA_KEY}</span>
+              Connected Project: <span className="font-mono" style={{ color: 'var(--color-primary)' }}>{JIRA_KEY}</span>
             </p>
             <div className="flex flex-wrap gap-2">
               {jiraProjects.map(p => (
@@ -418,7 +431,7 @@ export const Settings = () => {
                 </span>
               ))}
             </div>
-            <a href={`${getJiraBaseUrl()}/browse/${JIRA_KEY}`} target="_blank" rel="noopener noreferrer" className="mt-4 text-xs text-blue-400 flex items-center gap-1 hover:underline">
+            <a href={`${getJiraBaseUrl()}/browse/${JIRA_KEY}`} target="_blank" rel="noopener noreferrer" className="mt-4 text-xs flex items-center gap-1 hover:underline">
               View in Jira <ExternalLink size={12} />
             </a>
           </div>
@@ -429,7 +442,7 @@ export const Settings = () => {
       <div className="settings-card">
         <div className="status-header">
           <div className="flex items-center gap-3">
-            <FileText size={20} className="text-purple-400" />
+            <FileText size={20} color="var(--color-secondary)" />
             <h3 className="font-bold text-lg">Confluence</h3>
           </div>
           <div className="flex items-center gap-2">
@@ -458,7 +471,7 @@ export const Settings = () => {
               {confluenceSpaces.map(s => (
                 <button
                   key={s.key}
-                  className={`badge text-[10px] cursor-pointer hover:border-purple-500/50 transition-colors ${form.confluenceSpaceKey === s.key ? 'badge-info' : 'badge-neutral'}`}
+                  className={`badge text-[10px] cursor-pointer transition-colors ${form.confluenceSpaceKey === s.key ? 'badge-info' : 'badge-neutral'}`}
                   onClick={() => setForm(f => ({ ...f, confluenceSpaceKey: s.key }))}
                 >
                   {s.key}
@@ -486,7 +499,7 @@ export const Settings = () => {
         <div className="settings-card">
           <div className="status-header">
             <div className="flex items-center gap-3">
-              <GitBranch size={20} className="text-indigo-400" />
+              <GitBranch size={20} color="var(--color-primary)" />
               <h3 className="font-bold text-lg">Git Provider</h3>
             </div>
             {provider === 'bitbucket' && <StatusBadge status={bitbucketStatus} />}
@@ -676,10 +689,10 @@ export const Settings = () => {
           <p>Choose a provider and model for story extraction, PRD drafting, QA, and code generation.</p>
         </div>
 
-        <div className="settings-card border-indigo-500/20 bg-indigo-500/[0.02]">
+        <div className="settings-card">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <Cpu size={24} className="text-indigo-400" />
+              <Cpu size={24} color="var(--color-primary)" />
               <h3 className="font-bold text-lg">Model Configuration</h3>
             </div>
             {hasKey !== undefined && <StatusBadge status={hasKey ? 'ok' : 'idle'} label={hasKey ? 'Key set' : 'No key'} />}
@@ -769,11 +782,11 @@ export const Settings = () => {
             )}
           </div>
 
-          <div className="p-4 rounded-xl border border-indigo-500/10 bg-indigo-500/5">
+          <div className="p-4 rounded-xl neu-inset">
             <div className="flex items-start gap-3">
-              <ShieldCheck size={18} className="text-indigo-400 flex-shrink-0 mt-0.5" />
+              <ShieldCheck size={18} color="var(--color-primary)" className="flex-shrink-0 mt-0.5" />
               <div style={{ minWidth: 0 }}>
-                <p className="text-sm font-semibold text-indigo-200 truncate">{cfg.label} · {form.aiModel}</p>
+                <p className="text-sm font-semibold truncate" style={{ color: 'var(--color-primary-hover)' }}>{cfg.label} · {form.aiModel}</p>
                 <p className="text-xs text-tertiary mt-1">Handles extraction, PRD drafting, QA test cases, and code scaffolding.</p>
               </div>
             </div>
@@ -787,14 +800,98 @@ export const Settings = () => {
     <div className="settings-tab-content">
       <div className="settings-section-header">
         <h2>Advanced & Tools</h2>
-        <p>Diagnostics, alerts, and historical data calibration.</p>
+        <p>Delivery governance, diagnostics, alerts, and historical data calibration.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
+        {/* Governance & Delivery */}
+        <div className="settings-card">
+          <div className="flex items-center gap-3 mb-6">
+            <ShieldCheck size={20} color="var(--color-primary)" />
+            <h3 className="font-bold text-lg">Governance & Delivery</h3>
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Handoff Mode <Package size={12} className="ml-1 opacity-50" /></label>
+            <select
+              className="input-field"
+              value={form.handoffMode}
+              onChange={e => setForm(f => ({ ...f, handoffMode: e.target.value }))}
+            >
+              <option value="packets">Work packets (recommended)</option>
+              <option value="scaffold">AI code scaffold</option>
+            </select>
+            <p className="input-hint">
+              <strong>Work packets</strong> — commits a reviewable {'tasks/{JIRA-KEY}.md'} spec per story for coding agents; no blind code generation.
+              <br />
+              <strong>AI code scaffold</strong> — the AI generates starter code files and commits them directly to the feature branch.
+            </p>
+          </div>
+
+          <div className="gov-toggle-row">
+            <div className="gov-toggle-text">
+              <p className="gov-toggle-title"><EyeOff size={14} /> PII & Secret Redaction</p>
+              <p className="gov-toggle-desc">Scan transcripts for emails, phone numbers, card numbers, and keys — you review the findings before anything reaches the AI.</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.redactionEnabled}
+              aria-label="PII and secret redaction"
+              className={`toggle-switch ${form.redactionEnabled ? 'on' : ''}`}
+              onClick={() => setForm(f => ({ ...f, redactionEnabled: !f.redactionEnabled }))}
+            >
+              <span className="toggle-knob" />
+            </button>
+          </div>
+
+          <div className="gov-toggle-row">
+            <div className="gov-toggle-text">
+              <p className="gov-toggle-title"><UserCheck size={14} /> Solo Mode</p>
+              <p className="gov-toggle-desc">Skip the TPM / Engineering / QA sign-off gates when you work alone. Mirrors Admin › Governance.</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.soloMode}
+              aria-label="Solo mode"
+              className={`toggle-switch ${form.soloMode ? 'on' : ''}`}
+              onClick={() => setForm(f => ({ ...f, soloMode: !f.soloMode }))}
+            >
+              <span className="toggle-knob" />
+            </button>
+          </div>
+
+          <div className="input-group mt-4">
+            <label className="input-label">Figma Personal Access Token <PenTool size={12} className="ml-1 opacity-50" /></label>
+            <input
+              type="password"
+              className="input-field font-mono"
+              placeholder="figd_... (optional)"
+              value={form.figmaToken}
+              onChange={e => setForm(f => ({ ...f, figmaToken: e.target.value }))}
+            />
+            <p className="input-hint">Optional — stored locally with your settings and reserved for future design-link enrichment. Story design links work without it.</p>
+          </div>
+
+          <div className="p-4 rounded-xl neu-inset">
+            <div className="flex items-start gap-3">
+              <Users size={18} color="var(--color-primary)" className="flex-shrink-0 mt-0.5" />
+              <div style={{ minWidth: 0 }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-primary-hover)' }}>Users, roles & audit trail</p>
+                <p className="text-xs text-tertiary mt-1">Role assignments, sign-off policy, and the audit log live in the Admin section (admins only).</p>
+                <Link to="/admin" className="text-xs flex items-center gap-1 hover:underline mt-2" style={{ color: 'var(--color-primary)' }}>
+                  Open Admin <ExternalLink size={12} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Notifications */}
         <div className="settings-card">
           <div className="flex items-center gap-3 mb-6">
-            <Bell size={20} className="text-orange-400" />
+            <Bell size={20} color="var(--color-warning)" />
             <h3 className="font-bold text-lg">Alerts & Notifications</h3>
           </div>
 
@@ -824,7 +921,7 @@ export const Settings = () => {
         <div className="settings-card">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <TrendingUp size={20} className="text-emerald-400" />
+              <TrendingUp size={20} color="var(--color-success)" />
               <h3 className="font-bold text-lg">Team Velocity</h3>
             </div>
             <button className="btn btn-secondary text-xs px-3 py-1.5" onClick={loadVelocity} disabled={velocityLoading}>
@@ -837,27 +934,27 @@ export const Settings = () => {
 
           {velocityData && (
             <div className="grid grid-cols-3 gap-4">
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
-                <p className="text-2xl font-bold text-emerald-400">{velocityData.average || '—'}</p>
-                <p className="text-[10px] uppercase font-bold text-tertiary mt-1">Avg Points</p>
+              <div className="stat-tile text-center">
+                <p className="stat-value">{velocityData.average || '—'}</p>
+                <p className="stat-label">Avg Points</p>
               </div>
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
-                <p className="text-2xl font-bold text-emerald-400">{velocityData.count}</p>
-                <p className="text-[10px] uppercase font-bold text-tertiary mt-1">Sample Size</p>
+              <div className="stat-tile text-center">
+                <p className="stat-value">{velocityData.count}</p>
+                <p className="stat-label">Sample Size</p>
               </div>
-              <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-center">
-                <p className="text-2xl font-bold text-indigo-400">{velocityData.total}</p>
-                <p className="text-[10px] uppercase font-bold text-tertiary mt-1">Total Issues</p>
+              <div className="stat-tile text-center">
+                <p className="stat-value">{velocityData.total}</p>
+                <p className="stat-label">Total Issues</p>
               </div>
             </div>
           )}
         </div>
 
         {/* Diagnostics */}
-        <div className="settings-card border-red-500/10">
+        <div className="settings-card">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
-              <FlaskConical size={20} className="text-red-400" />
+              <FlaskConical size={20} color="var(--color-error)" />
               <h3 className="font-bold text-lg">Jira Diagnostics</h3>
             </div>
             <button className="btn btn-secondary text-xs px-3 py-1.5" onClick={runJiraDiagnose} disabled={jiraDiagnosing}>
@@ -867,7 +964,7 @@ export const Settings = () => {
           </div>
           <p className="text-xs text-tertiary">Creates and deletes a test issue to verify Write permissions and Custom Field structure.</p>
           {jiraDiagResult && (
-            <div className={`mt-4 p-3 rounded-lg text-xs ${jiraDiagResult.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+            <div className={`mt-4 p-3 rounded-lg text-xs diag-result ${jiraDiagResult.success ? 'ok' : 'error'}`}>
               {jiraDiagResult.success ? '✓ Jira write permissions confirmed.' : `✗ ${jiraDiagResult.error}`}
             </div>
           )}
@@ -891,7 +988,7 @@ export const Settings = () => {
       <aside className="settings-sidebar">
         <div className="px-3 mb-6">
           <h1 className="text-xl font-bold flex items-center gap-2">
-            <SettingsIcon size={20} className="text-indigo-400" />
+            <SettingsIcon size={20} color="var(--color-primary)" />
             Control Panel
           </h1>
           <p className="text-[10px] uppercase font-bold text-tertiary mt-1">SDLC Autopilot v1.2</p>

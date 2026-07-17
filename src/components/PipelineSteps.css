@@ -1,13 +1,34 @@
+/* ────────────────────────────────────────────────────────
+   PipelineSteps.css — hero pipeline stepper
+   Priority Liquid Glass · glass rail + neumorphic markers
+   Tokens live in src/index.css.
+   ──────────────────────────────────────────────────────── */
+
+/* Glass rail container */
 .pipeline-steps {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 0.9rem;
+  padding: 0.7rem 1rem;
   margin-bottom: var(--spacing-5, 1.25rem);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  background: var(--glass-bg);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--glass-highlight), var(--shadow-sm);
   overflow-x: auto;
+}
+
+/* Specular sheen on the rail */
+.pipeline-steps::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 35%, transparent 60%);
+  pointer-events: none;
 }
 
 .pipeline-step {
@@ -15,29 +36,39 @@
   align-items: center;
   gap: 0.55rem;
   padding: 0.4rem 0.7rem;
+  min-height: 44px;
   background: transparent;
   border: none;
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--radius-md, 0.75rem);
   color: var(--text-tertiary);
   font-family: inherit;
   white-space: nowrap;
   cursor: default;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .pipeline-step.clickable { cursor: pointer; }
-.pipeline-step.clickable:hover { background: rgba(255, 255, 255, 0.04); }
+.pipeline-step.clickable:hover {
+  background: var(--bg-interactive-hover);
+  transform: translateY(-1px);
+}
+.pipeline-step.clickable:active { transform: translateY(0); }
+
+.pipeline-step:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(95, 191, 169, 0.25);
+}
 
 .pipeline-step-marker {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  border: 1.5px solid var(--border-subtle);
+  border: 1px solid rgba(170, 225, 205, 0.1);
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .pipeline-step-label {
@@ -57,34 +88,105 @@
 }
 
 /* ── States ──────────────────────────────────────────── */
-.pipeline-step.current { color: var(--text-primary); }
+
+/* Active: glass pill + neumorphic raised marker with pulsing teal ring */
+.pipeline-step.current {
+  color: var(--text-primary);
+  background: var(--bg-interactive);
+}
 .pipeline-step.current .pipeline-step-marker {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: #fff;
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+  background: var(--neu-surface);
+  border-color: rgba(95, 191, 169, 0.45);
+  color: var(--color-primary);
+  box-shadow: var(--neu-raised-sm), 0 0 0 4px rgba(95, 191, 169, 0.15);
+  animation: stepPulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.pipeline-step.current .pipeline-step-index {
+  color: var(--color-primary);
 }
 
+/* Completed: brand-gradient filled circle, dark-green check */
 .pipeline-step.done { color: var(--text-secondary); }
 .pipeline-step.done .pipeline-step-marker {
-  border-color: var(--color-success);
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--color-success);
+  background: var(--brand-gradient);
+  border-color: transparent;
+  color: var(--text-on-brand);
+  box-shadow: 0 2px 10px -2px rgba(95, 191, 169, 0.45);
+}
+.pipeline-step.done.clickable:hover .pipeline-step-marker {
+  box-shadow: 0 4px 16px -2px rgba(111, 200, 178, 0.6);
 }
 
-.pipeline-step.upcoming .pipeline-step-marker { opacity: 0.7; }
+/* Upcoming: neumorphic inset well */
+.pipeline-step.upcoming .pipeline-step-marker {
+  background: var(--neu-surface);
+  border-color: rgba(0, 0, 0, 0.25);
+  box-shadow: var(--neu-inset);
+  color: var(--text-tertiary);
+}
+
+/* Pulsing teal glow ring for the active marker */
+@keyframes stepPulse {
+  0%, 100% { box-shadow: var(--neu-raised-sm), 0 0 0 4px rgba(95, 191, 169, 0.18); }
+  50% { box-shadow: var(--neu-raised-sm), 0 0 0 7px rgba(95, 191, 169, 0.06); }
+}
 
 /* ── Connector ───────────────────────────────────────── */
 .pipeline-connector {
   flex: 1;
   min-width: 1.25rem;
   height: 2px;
-  border-radius: 2px;
-  background: var(--border-subtle);
+  border-radius: var(--radius-full, 9999px);
+  background: rgba(170, 225, 205, 0.14);
+  transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.pipeline-connector.done { background: var(--color-success); opacity: 0.6; }
+.pipeline-connector.done {
+  background: var(--brand-gradient);
+  box-shadow: 0 0 8px -1px rgba(95, 191, 169, 0.4);
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 768px) {
+  .pipeline-steps {
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    padding: 0.6rem 0.75rem;
+  }
+}
 
 @media (max-width: 640px) {
   .pipeline-step-index { display: none; }
   .pipeline-step-label { font-size: 0.78rem; }
+}
+
+@media (max-width: 480px) {
+  .pipeline-steps { gap: 0.35rem; }
+  .pipeline-step { padding: 0.35rem 0.5rem; }
+  .pipeline-step-marker { width: 28px; height: 28px; }
+  .pipeline-connector { min-width: 0.75rem; }
+}
+
+/* ── backdrop-filter fallback — opaque rail when blur is unsupported ── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pipeline-steps {
+    background: linear-gradient(160deg, rgba(22, 56, 42, 0.96), rgba(8, 31, 23, 0.98));
+  }
+}
+
+/* ── Reduced Motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-step,
+  .pipeline-step-marker,
+  .pipeline-connector {
+    transition: none;
+  }
+
+  .pipeline-step.clickable:hover {
+    transform: none;
+  }
+
+  .pipeline-step.current .pipeline-step-marker {
+    animation: none;
+    box-shadow: var(--neu-raised-sm), 0 0 0 4px rgba(95, 191, 169, 0.15);
+  }
 }

@@ -1,3 +1,4 @@
+/* global __JIRA_PROJECT_KEY__, __ATLASSIAN_DOMAIN__ */
 const PROJECT_KEY = typeof __JIRA_PROJECT_KEY__ !== 'undefined' ? __JIRA_PROJECT_KEY__ : 'KAN';
 const DOMAIN = typeof __ATLASSIAN_DOMAIN__ !== 'undefined' ? __ATLASSIAN_DOMAIN__ : '';
 
@@ -330,6 +331,83 @@ export const createJiraQASubTask = async (parentKey, story, testCases = []) => {
     }
   }
   return { success: false, error: 'Sub-task issue type not available in this project' };
+};
+
+// ─── DELETE / STATUS / SEARCH (rollback + traceability + comparables) ──────────
+
+export const deleteJiraIssue = async (key) => {
+  if (!key) return { success: false, error: 'No issue key provided.' };
+  try {
+    const res = await fetch(`/api/jira/issue/${encodeURIComponent(key)}?deleteSubtasks=true`, {
+      method: 'DELETE',
+      headers: { 'X-Atlassian-Token': 'no-check' }
+    });
+    if (res.ok) return { success: true };
+    let errMsg = `HTTP ${res.status}`;
+    try { const d = await res.json(); errMsg = parseJiraError(d); } catch {}
+    return { success: false, error: errMsg };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+export const getIssueStatus = async (key) => {
+  if (!key) return null;
+  try {
+    const res = await fetch(`/api/jira/issue/${encodeURIComponent(key)}?fields=status,assignee`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      key: data.key || key,
+      status: data.fields?.status?.name || 'Unknown',
+      assignee: data.fields?.assignee?.displayName || null
+    };
+  } catch {
+    return null;
+  }
+};
+
+// Full-text similarity search (comparables / duplicate detection). Never throws — [] on error.
+export const findSimilarIssues = async (text, { maxResults = 5, resolvedOnly = true } = {}) => {
+  try {
+    const words = String(text || '')
+      .replace(/["\\~*?()[\]{}]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 8)
+      .join(' ');
+    if (!words) return [];
+
+    const jql = `text ~ "${words}"${resolvedOnly ? ' AND statusCategory = Done' : ''}`;
+    const fields = ['summary', 'status', 'customfield_10016'];
+    let issues = null;
+
+    // Preferred: POST search endpoint (newer Jira Cloud API)
+    try {
+      const { ok, data } = await jiraPost('/api/jira/search/jql', { jql, maxResults, fields });
+      if (ok) issues = data.issues || [];
+    } catch { /* fall through to GET */ }
+
+    // Fallback: legacy GET search
+    if (!issues) {
+      const res = await fetch(
+        `/api/jira/search?jql=${encodeURIComponent(jql)}&maxResults=${maxResults}&fields=${fields.join(',')}`
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      issues = data.issues || [];
+    }
+
+    return issues.slice(0, maxResults).map(i => ({
+      key: i.key,
+      summary: i.fields?.summary || '',
+      status: i.fields?.status?.name || '',
+      points: typeof i.fields?.customfield_10016 === 'number' ? i.fields.customfield_10016 : null,
+      url: `${getJiraBaseUrl()}/browse/${i.key}`
+    }));
+  } catch {
+    return [];
+  }
 };
 
 // ─── ISSUE LINKING ─────────────────────────────────────────────────────────────

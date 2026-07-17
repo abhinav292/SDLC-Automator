@@ -20,6 +20,27 @@ const safeQuery = async (queryText, params) => {
   return await pool.query(queryText, params);
 };
 
+// ─── TABLE BOOTSTRAP ─────────────────────────────────────────────────────────
+// Create tables this server owns when a DB is configured. Failures are logged,
+// never fatal — the app degrades gracefully without a DB.
+
+const bootstrapTables = async () => {
+  if (!pool) return;
+  try {
+    await safeQuery(`CREATE TABLE IF NOT EXISTS intake_items (
+      id TEXT PRIMARY KEY,
+      ts TEXT,
+      channel TEXT,
+      slack_user TEXT,
+      text TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+  } catch (err) {
+    console.warn('[bootstrap] Could not create intake_items table:', err.message);
+  }
+};
+bootstrapTables();
+
 // ─── TRANSCRIPT PRE-PROCESSING ────────────────────────────────────────────────
 
 const FILLER_PHRASES = /\b(um+|uh+|er+|like,?\s|you know,?\s|so,?\s|basically,?\s|right,?\s|okay so,?\s|i mean,?\s|sort of,?\s|kind of,?\s|actually,?\s|literally,?\s)\b/gi;
@@ -240,6 +261,38 @@ const callAI = async (model, messages, temperature = 0.3) => {
   return adapter(modelId, messages, temperature);
 };
 
+// Whether the currently selected AI provider has its API key configured.
+const AI_KEY_ENVS = {
+  bedrock: 'BEDROCK_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY'
+};
+const isAIConfigured = () => !!process.env[AI_KEY_ENVS[getAIProvider()] || 'BEDROCK_API_KEY'];
+
+// Parse a single JSON object from AI response content (with fallback recovery)
+const parseJsonObjectFromContent = (rawContent) => {
+  const content = (rawContent || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+
+  // Attempt 1: direct JSON parse
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {}
+
+  // Attempt 2: greedy regex for first object
+  const m = content.match(/\{[\s\S]*\}/);
+  if (m) {
+    try {
+      const parsed = JSON.parse(m[0]);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {}
+  }
+
+  return null;
+};
+
 // Parse a JSON array of stories from AI response content (with fallback recovery)
 const parseStoriesFromContent = (rawContent) => {
   const content = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -320,6 +373,11 @@ SCHEMA (all fields required):
 - "dependencies": [] or ["story-1", …]
 - "status": "pending"
 
+OPTIONAL GROUNDING FIELDS (include whenever you can — omit only when genuinely unknown):
+- "confidence": number 0–1 — how directly the transcript supports this story (1.0 = explicitly stated, 0.5 = partially implied, <0.5 = inferred)
+- "sourceQuotes": up to 3 objects {"quote":"...", "file":"..."} — VERBATIM lines copied character-for-character from the transcript that this story derives from; "file" is the source file name if one is indicated in the text, otherwise ""
+- "prdSection": when the source is a PRD, the exact requirement heading this story maps to (e.g. "7. Functional Requirements"); omit for raw meeting transcripts
+
 RULES:
 1. Extract EVERY distinct independently-deliverable feature — no artificial cap; complex transcripts may yield 10+ stories.
 2. Merge duplicate mentions into one story.
@@ -328,6 +386,7 @@ RULES:
 5. qaScenarios must be complete Gherkin, not just titles.
 6. Flag High priority for: blocking work, security/auth, customer-facing revenue impact, urgent deadline.
 7. Risk keywords: performance, SLA, migration, third-party, GDPR, PII, cost, TBD, breaking change.
+8. sourceQuotes must be exact verbatim substrings of the transcript — never paraphrase, never invent. Max 3 per story.
 
 TRANSCRIPT:
 `;
@@ -567,7 +626,7 @@ app.get('/pipelines', async (_req, res) => {
   try {
     const result = await safeQuery('SELECT * FROM pipeline_runs ORDER BY created_at DESC LIMIT 20');
     res.json(result.rows);
-  } catch (err) {
+  } catch {
     res.json([]);
   }
 });
@@ -581,7 +640,7 @@ app.post('/pipelines', async (req, res) => {
       [JSON.stringify(fileNames || []), transcriptSummary || '']
     );
     res.json(result.rows[0] || { id: 'mock-pipeline-run-id' });
-  } catch (err) {
+  } catch {
     res.json({ id: 'mock-pipeline-run-id' });
   }
 });
@@ -593,7 +652,7 @@ app.get('/pipelines/:id', async (req, res) => {
     const audit = await safeQuery('SELECT * FROM audit_log WHERE pipeline_id = $1 ORDER BY created_at', [req.params.id]);
     if (!pipeline.rows[0]) return res.json({ id: req.params.id, MockData: true });
     res.json({ ...pipeline.rows[0], stories: stories.rows, audit: audit.rows });
-  } catch (err) {
+  } catch {
     res.json({ id: req.params.id, MockData: true });
   }
 });
@@ -614,7 +673,7 @@ app.patch('/pipelines/:id', async (req, res) => {
       [status, storyCount, approvedCount, jiraKeys ? JSON.stringify(jiraKeys) : null, confluenceUrl, notes, req.params.id]
     );
     res.json(result.rows[0] || { success: true });
-  } catch (err) {
+  } catch {
     res.json({ success: true, bypassed: true });
   }
 });
@@ -667,7 +726,7 @@ app.patch('/pipelines/:pipelineId/stories/:storyId', async (req, res) => {
       [status, jiraKey, bbBranch, approvedAt, req.params.storyId, req.params.pipelineId]
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch {
     res.json({ ok: true, bypassed: true });
   }
 });
@@ -682,7 +741,7 @@ app.post('/pipelines/:id/audit', async (req, res) => {
       [req.params.id, eventType, JSON.stringify(eventData || {})]
     );
     res.json(result.rows[0] || { ok: true });
-  } catch (err) {
+  } catch {
     res.json({ ok: true, bypassed: true });
   }
 });
@@ -992,6 +1051,247 @@ Respond with ONLY a valid JSON array. No markdown, no explanation.`;
     console.error('QA task generation error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── AI PRD LINTER ────────────────────────────────────────────────────────────
+// Reviews a PRD for ambiguity, conflicts, and gaps. Returns structured issues
+// the UI can apply one-click fixes from.
+
+app.post('/lint-prd', async (req, res) => {
+  const { prdText } = req.body;
+  if (!prdText) return res.status(400).json({ error: 'No prdText provided' });
+  if (!isAIConfigured()) return res.status(503).json({ error: 'AI provider is not configured. Add an API key in Settings.' });
+
+  const prompt = `You are a rigorous senior product reviewer. Critique the PRD below for ambiguity, internal conflicts, and gaps. Return ONLY a raw JSON object — first char "{", last char "}", no markdown fences, no preamble.
+
+SCHEMA:
+{
+  "issues": [
+    {
+      "severity": "error" | "warning" | "info",
+      "section": "the PRD heading the issue is under (e.g. '7. Functional Requirements')",
+      "quote": "a short VERBATIM excerpt copied character-for-character from the PRD that the issue refers to",
+      "issue": "one-sentence description of the problem",
+      "suggestion": "concrete replacement text or addition that fixes the problem"
+    }
+  ]
+}
+
+WHAT TO FLAG:
+- "error": contradictions between sections, requirements that are untestable as written, missing critical requirements (auth, error handling, data validation) implied by the product.
+- "warning": vague/unmeasurable language ("fast", "user-friendly", "robust", "seamless", "etc."), undefined terms, requirements without acceptance conditions.
+- "info": open questions, unstated assumptions, sections marked "To be determined".
+
+RULES:
+1. "quote" MUST be an exact substring of the PRD so it can be found and replaced programmatically. Keep quotes short (one line or phrase).
+2. "suggestion" must be drop-in replacement text for the quote where possible.
+3. Return 0–15 issues, most important first. An empty "issues" array is valid for a flawless PRD.
+
+PRD:
+${String(prdText).slice(0, 24000)}`;
+
+  try {
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.2);
+    const content = data.choices?.[0]?.message?.content || '';
+    const parsed = parseJsonObjectFromContent(content);
+
+    let issues = null;
+    if (parsed && Array.isArray(parsed.issues)) issues = parsed.issues;
+    else if (Array.isArray(parsed)) issues = parsed;
+    if (!issues) {
+      // Last resort: the model may have returned a bare array
+      const m = content.match(/\[[\s\S]*\]/);
+      if (m) { try { issues = JSON.parse(m[0]); } catch {} }
+    }
+    if (!Array.isArray(issues)) {
+      return res.status(500).json({ error: 'Could not parse AI lint response' });
+    }
+
+    issues = issues
+      .filter(i => i && typeof i === 'object')
+      .map(i => ({
+        severity: ['error', 'warning', 'info'].includes(i.severity) ? i.severity : 'info',
+        section: i.section || '',
+        quote: i.quote || '',
+        issue: i.issue || '',
+        suggestion: i.suggestion || ''
+      }));
+
+    res.json({ issues, model: data.model, usage: data.usage });
+  } catch (err) {
+    console.error('PRD lint error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── MULTI-TRANSCRIPT STORY MERGE ────────────────────────────────────────────
+// Map-reduce synthesis: takes per-file story sets and reconciles them into one
+// deduplicated set, flagging contradictions between sources.
+
+app.post('/merge-stories', async (req, res) => {
+  const { storySets, fileNames } = req.body;
+  if (!Array.isArray(storySets) || storySets.length === 0) {
+    return res.status(400).json({ error: 'No storySets provided' });
+  }
+  if (!isAIConfigured()) return res.status(503).json({ error: 'AI provider is not configured. Add an API key in Settings.' });
+
+  const names = Array.isArray(fileNames) ? fileNames : [];
+  const setsBlock = storySets.map((set, i) => {
+    const label = names[i] || `file-${i + 1}`;
+    return `SOURCE FILE: ${label}\nSTORIES:\n${JSON.stringify(set || [], null, 1)}`;
+  }).join('\n\n---\n\n');
+
+  const prompt = `You are a senior TPM reconciling user stories extracted independently from ${storySets.length} meeting transcripts / documents. Merge them into ONE coherent, deduplicated story set. Return ONLY a raw JSON object — first char "{", last char "}", no markdown fences, no preamble.
+
+SCHEMA:
+{
+  "stories": [ …merged story objects… ],
+  "contradictions": [
+    { "topic": "short topic name", "a": "what one source says", "b": "what the other source says", "files": ["file names involved"] }
+  ]
+}
+
+RULES:
+1. Each merged story keeps the EXACT field structure of the input stories (id, title, description, acceptanceCriteria, negativeAcceptanceCriteria, storyPoints, adjustedPoints, priority, labels, technicalNotes, qaScenarios, riskFlags, solution, epic, dependencies, status).
+2. PRESERVE citation/grounding fields: when input stories carry "confidence", "sourceQuotes", or "prdSection", carry them into the merged story. When merging duplicates, union their sourceQuotes (max 3, keep the "file" attribution of each quote) and use the higher confidence.
+3. Merge stories describing the same feature into one; combine their acceptance criteria (deduplicated).
+4. Keep genuinely distinct stories separate — do not over-merge.
+5. When sources disagree (different scope, priority, behavior, numbers), pick the more specific/recent-sounding version for the story AND record the disagreement in "contradictions" with the file names involved. "contradictions" is [] if none.
+6. Re-sequence story ids as "story-1", "story-2", … and set "status" to "pending".
+7. Dependencies must reference the new re-sequenced ids only.
+
+${setsBlock}`;
+
+  try {
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.2);
+    const content = data.choices?.[0]?.message?.content || '';
+    const parsed = parseJsonObjectFromContent(content);
+    let stories = parsed && Array.isArray(parsed.stories) ? parsed.stories : null;
+    if (!stories) {
+      // Model may have returned a bare array of stories
+      const arr = parseStoriesFromContent(content);
+      if (arr && arr.length) stories = arr;
+    }
+    if (!stories || stories.length === 0) {
+      return res.status(503).json({ error: 'AI merge failed to return stories' });
+    }
+
+    stories = stories.map((s, i) => ({ ...s, id: `story-${i + 1}` }));
+    const contradictions = (parsed && Array.isArray(parsed.contradictions))
+      ? parsed.contradictions.filter(c => c && typeof c === 'object')
+      : [];
+
+    res.json({ stories, contradictions, model: data.model, usage: data.usage });
+  } catch (err) {
+    console.error('Story merge error:', err);
+    res.status(503).json({ error: err.message });
+  }
+});
+
+// ─── PRD DIFF SUMMARY ─────────────────────────────────────────────────────────
+
+app.post('/summarize-diff', async (req, res) => {
+  const { oldText, newText } = req.body;
+  if (oldText === undefined || newText === undefined) {
+    return res.status(400).json({ error: 'oldText and newText required' });
+  }
+  if (!isAIConfigured()) return res.status(503).json({ error: 'AI provider is not configured. Add an API key in Settings.' });
+
+  const prompt = `You are a product manager summarizing what changed between two versions of a PRD. Compare OLD and NEW below and describe the meaningful differences.
+
+RULES:
+1. Return 3–6 markdown bullet points ("- ..."), each describing one substantive change (added/removed/reworded requirements, scope changes, new sections).
+2. Focus on meaning, not formatting/whitespace changes.
+3. If the documents are effectively identical, return a single bullet saying no substantive changes were found.
+4. Return ONLY the bullet list. No preamble, no headings, no code fences.
+
+OLD VERSION:
+${String(oldText).slice(0, 12000)}
+
+NEW VERSION:
+${String(newText).slice(0, 12000)}`;
+
+  try {
+    const data = await callAI(null, [{ role: 'user', content: prompt }], 0.2);
+    const summary = data.choices?.[0]?.message?.content?.trim() || '';
+    if (!summary) return res.status(500).json({ error: 'AI returned an empty summary' });
+    res.json({ summary, model: data.model, usage: data.usage });
+  } catch (err) {
+    console.error('Diff summary error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── SLACK INTAKE (STUB) ──────────────────────────────────────────────────────
+// Slack Events API webhook. Handles url_verification handshake and message
+// events. Items live in memory (cap 50) and mirror to intake_items when a DB
+// is configured. No signature verification — this is a demo-grade stub.
+
+const INTAKE_CAP = 50;
+const intakeItems = []; // newest first
+
+app.post('/slack-intake', async (req, res) => {
+  const body = req.body || {};
+
+  // Slack Events API URL verification handshake
+  if (body.type === 'url_verification') {
+    return res.json({ challenge: body.challenge });
+  }
+
+  const event = body.event;
+  if (event && event.type === 'message' && event.text && !event.bot_id && !event.subtype) {
+    const item = {
+      id: `intake-${event.channel || 'ch'}-${event.ts || Date.now()}`,
+      ts: event.ts || String(Date.now() / 1000),
+      channel: event.channel || '',
+      user: event.user || '',
+      text: event.text
+    };
+
+    if (!intakeItems.some(i => i.id === item.id)) {
+      intakeItems.unshift(item);
+      if (intakeItems.length > INTAKE_CAP) intakeItems.length = INTAKE_CAP;
+
+      // Mirror to DB when configured — fire-and-forget, never blocks the ack
+      safeQuery(
+        `INSERT INTO intake_items (id, ts, channel, slack_user, text)
+         VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,
+        [item.id, item.ts, item.channel, item.user, item.text]
+      ).catch(err => console.warn('[intake] DB insert failed:', err.message));
+    }
+  }
+
+  // Slack expects a fast 200 for all events
+  res.json({ ok: true });
+});
+
+app.get('/intake', async (_req, res) => {
+  try {
+    const result = await safeQuery(
+      'SELECT id, ts, channel, slack_user, text FROM intake_items ORDER BY created_at DESC LIMIT $1',
+      [INTAKE_CAP]
+    );
+    const memoryIds = new Set(intakeItems.map(i => i.id));
+    const fromDb = result.rows
+      .filter(r => !memoryIds.has(r.id))
+      .map(r => ({ id: r.id, ts: r.ts, channel: r.channel, user: r.slack_user, text: r.text }));
+    res.json({ items: [...intakeItems, ...fromDb].slice(0, INTAKE_CAP) });
+  } catch {
+    // DB failure degrades to the in-memory list
+    res.json({ items: intakeItems });
+  }
+});
+
+app.delete('/intake/:id', async (req, res) => {
+  const { id } = req.params;
+  const idx = intakeItems.findIndex(i => i.id === id);
+  if (idx !== -1) intakeItems.splice(idx, 1);
+  try {
+    await safeQuery('DELETE FROM intake_items WHERE id = $1', [id]);
+  } catch (err) {
+    console.warn('[intake] DB delete failed:', err.message);
+  }
+  res.json({ ok: true });
 });
 
 // ─── HEALTH ───────────────────────────────────────────────────────────────────

@@ -82,6 +82,34 @@ export const createGitlabMR = async (project, branchName, storyTitle, checklist,
   }
 };
 
+export const deleteGitlabBranch = async (project, branch) => {
+  if (!project || !branch) return { success: false, error: 'GitLab project and branch are required.' };
+  try {
+    const res = await fetch(`${API}/projects/${pid(project)}/repository/branches/${encodeURIComponent(branch)}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) return { success: true };
+    return { success: false, error: await glError(res) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
+export const closeGitlabMR = async (project, iid) => {
+  if (!project || !iid) return { success: false, error: 'GitLab project and merge request iid are required.' };
+  try {
+    const res = await fetch(`${API}/projects/${pid(project)}/merge_requests/${encodeURIComponent(iid)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state_event: 'close' })
+    });
+    if (res.ok) return { success: true };
+    return { success: false, error: await glError(res) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+};
+
 export const getGitlabProjects = async () => {
   try {
     const res = await fetch(`${API}/projects?membership=true&per_page=100&order_by=last_activity_at&simple=true`);

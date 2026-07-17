@@ -1,0 +1,311 @@
+/* ────────────────────────────────────────────────────────
+   Trace.css — traceability matrix page
+   Priority Liquid Glass · dark forest fintech
+   Tokens live in src/index.css; this file only consumes them.
+   ──────────────────────────────────────────────────────── */
+
+.trace-page {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* ── Coverage stat tiles ─────────────────────────────── */
+.trace-page .trace-stats {
+  margin-bottom: var(--spacing-6);
+}
+
+.trace-page .trace-stat-sub {
+  margin-top: var(--spacing-2);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  line-height: 1.45;
+}
+
+/* Warning-tinted stat value (stale count > 0) — overrides the
+   gradient text baked into .stat-tile .stat-value */
+.trace-page .stat-tile .stat-value--warn {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  -webkit-text-fill-color: var(--color-warning);
+  color: var(--color-warning);
+}
+
+/* ── Inline alerts (refresh / export feedback) ───────── */
+.trace-alert {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  padding: 0.6rem 0.9rem;
+  margin-bottom: var(--spacing-4);
+  border-radius: var(--radius-md);
+  border: 1px solid;
+  font-size: 0.8125rem;
+}
+
+.trace-alert svg {
+  flex-shrink: 0;
+}
+
+.trace-alert--warning {
+  background: rgba(232, 196, 104, 0.08);
+  border-color: rgba(232, 196, 104, 0.25);
+  color: #EED9A0;
+}
+
+.trace-alert--error {
+  background: rgba(240, 122, 106, 0.08);
+  border-color: rgba(240, 122, 106, 0.25);
+  color: #F5A297;
+}
+
+.trace-alert--success {
+  background: rgba(67, 214, 149, 0.08);
+  border-color: rgba(67, 214, 149, 0.25);
+  color: #7CE4B4;
+}
+
+/* ── Matrix table (glass card shell, own scroll) ─────── */
+.trace-table-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Table hover shouldn't lift the whole card like content cards do */
+.trace-table-card:hover {
+  transform: none;
+}
+
+/* Horizontal scroll lives INSIDE the card — the page body never
+   scrolls sideways, even at 480px. */
+.trace-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trace-table-wrap::-webkit-scrollbar {
+  height: 6px;
+}
+
+.trace-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.trace-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(95, 191, 169, 0.3);
+  border-radius: 10px;
+}
+
+.trace-table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.trace-table th {
+  text-align: left;
+  padding: 0.8rem 1rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(8, 31, 23, 0.35);
+}
+
+.trace-table td {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+  color: var(--text-secondary);
+}
+
+.trace-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.trace-table tbody tr:hover td {
+  background: var(--bg-interactive);
+}
+
+/* Requirements with no live story — dropped scope */
+.trace-row--dropped td {
+  background: rgba(240, 122, 106, 0.05);
+}
+
+.trace-row--dropped:hover td {
+  background: rgba(240, 122, 106, 0.09);
+}
+
+/* ── Cell content ────────────────────────────────────── */
+.trace-reqid {
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.trace-section {
+  min-width: 160px;
+  max-width: 240px;
+}
+
+.trace-story {
+  min-width: 220px;
+  max-width: 340px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.trace-center {
+  text-align: center;
+}
+
+.trace-approved {
+  color: var(--color-success);
+}
+
+.trace-dim {
+  color: var(--text-muted);
+}
+
+.trace-jira {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+.trace-jira-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.trace-jira .badge {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.trace-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.trace-branch svg {
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+a.trace-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.trace-flags {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  flex-wrap: wrap;
+}
+
+.trace-flags .badge {
+  white-space: nowrap;
+}
+
+/* ── Footnotes ───────────────────────────────────────── */
+.trace-footnotes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+  margin-top: var(--spacing-4);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.trace-inline-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.trace-inline-link:hover {
+  color: var(--color-primary-hover);
+}
+
+/* ── Empty state ─────────────────────────────────────── */
+.trace-page .trace-empty-text {
+  max-width: 46ch;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.trace-page .trace-empty-actions {
+  margin-top: var(--spacing-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .trace-table {
+    min-width: 880px;
+  }
+}
+
+@media (max-width: 768px) {
+  .trace-table th,
+  .trace-table td {
+    padding: 0.6rem 0.75rem;
+  }
+
+  .trace-story {
+    min-width: 200px;
+  }
+}
+
+@media (max-width: 480px) {
+  .trace-table {
+    font-size: 0.8rem;
+    min-width: 820px;
+  }
+
+  .trace-table th,
+  .trace-table td {
+    padding: 0.5rem 0.65rem;
+  }
+
+  .trace-page .trace-empty-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* ── Reduced motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .trace-page {
+    animation: none;
+  }
+}
